@@ -38,14 +38,9 @@ enum { S_DOTTED8, S_ROLL3, S_STAIRS, S_OCTAVES, S_GALLOP, S_SYNC, S_DOTTED_RISE,
        S_8THS, S_BELLS, S_SPARSE, S_PAIRS, S_CASCADE, S_UPDOWN, S_SWELL, SEQUENCES };
 enum { B_DRONE, B_PULSE8, B_PULSE16, B_SYNC, B_HEART, B_QUARTER, B_DOTTED, BASSES };
 enum { D_HEART, D_FLOOR, D_HALF };
-#define PAD_ LUSH_AIR_PAD
-#define STR_ LUSH_STRINGS
 #define GLS_ LUSH_GLASS_PLUCK
-#define HRP_ LUSH_HARP
-#define FLT_ LUSH_FELT
 #define WBS_ LUSH_WARM_BASS
 #define SUB_ LUSH_SUB
-#define BEL_ LUSH_AIR_BELL
 #define DPL_ LUSH_DETUNE_PLUCK
 #define SAW_ LUSH_SUPERSAW
 #define JUN_ LUSH_JUNO_ARP
@@ -54,7 +49,6 @@ enum { D_HEART, D_FLOOR, D_HALF };
 #define MAR_ LUSH_MARIMBA
 #define GLK_ LUSH_GLOCK
 #define HAL_ LUSH_HALO_PLUCK
-#define AIR_ LUSH_AIR_SEQ
 #define HPN_ LUSH_HANDPAN
 #define KAL_ LUSH_KALIMBA
 #define VOO_ LUSH_VOX_OOH
@@ -90,6 +84,7 @@ static const struct scene scenes[GROOVE_FACTORY_PROJECTS] = {
 };
 #undef LU
 #undef DR
+#if WORSHIP_DX7_RECIPES /* unused by the worship scenes; off to save program Flash */
 static FM1_DSP_DATA const char fm_names[FM1_FM_FACTORY_PROGRAMS][11] = {
     "NEON KEYS ","ORBIT BELL","SOFT ORGAN","ROUND BASS","WARM AIR  ","WOOD REED ",
     "SOFT EP   ","DRY CLAV  ","FM GUITAR ","MARIMBA   ","VIBES     ","SOFT BRASS",
@@ -155,14 +150,18 @@ static void demo_voice(uint8_t p[156], unsigned tone)
     if (tone == WARM_PAD || tone == STRINGS || tone == REED) { p[139] = 2; p[143] = 2; }
     p[144] = 24; p[155] = 63;
 }
+#endif
 static void preset(struct groove_preset *p, const struct part *v)
 {
     p->type = v->source; p->volume = v->level; p->modified = 1;
     p->controls.envelope[2] = 100;
+#if WORSHIP_DX7_RECIPES
     if (v->source == GROOVE_DX7) {
         demo_voice(p->data, v->tone); p->program = v->tone; p->modified = 0;
     }
-    else if (v->source == GROOVE_303) {
+    else
+#endif
+    if (v->source == GROOVE_303) {
         static const uint8_t bass[4][BASS303_NPARAMS] = {
             {45,24,32,52,62,0,64,96,0,1,14,5},
             {60,66,73,56,74,0,64,94,6,1,26,10},
@@ -213,44 +212,43 @@ static void preset(struct groove_preset *p, const struct part *v)
 }
 
 /* ---- Worship sequences -----------------------------------------------
- * Degrees index the chord-tone table; -1 is a rest. A sequence is 16, 32 or
- * 48 sixteenths long, so layers with different lengths drift against each
- * other and realign every few bars without ever leaving the grid. Shapes
- * favour root/5th/9th/10th over plain triad climbs. */
+ * Degrees index the chord-tone table; a step is 4 bits: 0 rest, else degree + 1.
+ * A sequence is 16, 32 or 48 sixteenths long, so layers with different lengths
+ * drift against each other and realign every few bars without leaving the grid.
+ * Shapes favour root/5th/9th/10th over plain triad climbs. */
 enum { MAX_SEQ = 48 };
-struct sequence { uint8_t length, gate; int8_t degree[MAX_SEQ]; };
-#define R -1
+struct sequence { uint8_t length, gate, step[MAX_SEQ / 2]; };
+static int sequence_degree(const struct sequence *q, unsigned at)
+{
+    return (int)((q->step[at >> 1] >> ((at & 1U) * 4U)) & 15U) - 1;
+}
 static const struct sequence sequences[SEQUENCES] = {
-    [S_DOTTED8]     = {16, 12, {0,R,R,3, R,R,4,R, R,1,R,R, 3,R,2,R}},
-    [S_ROLL3]       = {48,  7, {0,1,3, 0,1,4, 0,1,3, 5,4,3, 0,1,3, 0,1,4, 0,1,3, 5,4,3,
-                                0,1,3, 0,1,4, 0,1,3, 5,4,3, 0,1,3, 0,1,4, 2,4,5, 7,5,4}},
-    [S_STAIRS]      = {32,  8, {0,1,3,4, 2,3,5,4, 6,5,4,3, 2,1,3,1, 0,1,3,4, 2,4,5,7, 6,5,4,2, 3,1,2,R}},
-    [S_OCTAVES]     = {16,  6, {0,2,0,2, 1,5,1,5, 3,7,3,7, 4,8,4,2}},
-    [S_GALLOP]      = {16,  7, {0,R,2,3, 1,R,2,4, 0,R,2,3, 5,R,4,2}},
-    [S_SYNC]        = {32, 10, {0,R,R,1, R,R,3,R, 4,R,R,3, R,R,1,R, 2,R,R,1, R,R,3,R, 5,R,4,R, 3,R,R,R}},
-    [S_DOTTED_RISE] = {48, 13, {0,R,R,3,R,R,4,R,R,1,R,R,5,R,R,0, R,R,3,R,R,4,R,R,1,R,R,5,R,R,0,R,
-                                R,3,R,R,4,R,R,1,R,R,5,R,R,6,R,R}},
-    [S_PULSE16]     = {16,  5, {2,2,2,2, 2,2,2,6, 2,2,2,2, 2,2,3,6}},
-    [S_8THS]        = {16, 10, {0,R,1,R, 3,R,4,R, 2,R,1,R, 3,R,4,R}},
-    [S_BELLS]       = {32, 15, {3,R,R,R, 4,R,R,R, 5,R,R,R, 4,R,R,R, 3,R,R,R, 4,R,R,R, 7,R,R,R, 5,R,R,R}},
-    [S_SPARSE]      = {32, 15, {6,R,R,R, R,R,4,R, R,R,3,R, R,R,R,R, 7,R,R,R, R,R,5,R, R,R,8,R, R,R,R,R}},
-    [S_PAIRS]       = {16,  9, {3,R,4,R, 3,R,1,R, 3,R,4,R, 5,R,4,R}},
-    [S_CASCADE]     = {16,  6, {8,7,6,5, 4,3,2,1, 7,6,5,4, 3,2,1,0}},
-    [S_UPDOWN]      = {16, 10, {0,R,1,R, 2,R,3,R, 4,R,3,R, 2,R,1,R}},
-    /* Reverse swells: triggered mid-bar so a 2-beat swell lands on the downbeat. */
-    [S_SWELL]       = {16, 15, {R,R,R,R, R,R,R,R, 3,R,R,R, R,R,R,R}},
+    [S_DOTTED8] = {16, 12, {1,64,0,5,32,0,4,3}},
+    [S_ROLL3] = {48, 7, {33,20,82,33,100,69,33,20,82,33,100,69,33,20,82,33,100,69,33,20,82,83,134,86}},
+    [S_STAIRS] = {32, 8, {33,84,67,86,103,69,35,36,33,84,83,134,103,53,36,3}},
+    [S_OCTAVES] = {16, 6, {49,49,98,98,132,132,149,53}},
+    [S_GALLOP] = {16, 7, {1,67,2,83,1,67,6,53}},
+    [S_SYNC] = {32, 10, {1,32,0,4,5,64,0,2,3,32,0,4,6,5,4,0}},
+    [S_DOTTED_RISE] = {48, 13, {1,64,0,5,32,0,6,16,0,4,80,0,2,96,0,1,64,0,5,32,0,6,112,0}},
+    [S_PULSE16] = {16, 5, {51,51,51,115,51,51,51,116}},
+    [S_8THS] = {16, 10, {1,2,4,5,3,2,4,5}},
+    [S_BELLS] = {32, 15, {4,0,5,0,6,0,5,0,4,0,5,0,8,0,6,0}},
+    [S_SPARSE] = {32, 15, {7,0,0,5,0,4,0,0,8,0,0,6,0,9,0,0}},
+    [S_PAIRS] = {16, 9, {4,5,4,2,4,5,6,5}},
+    [S_CASCADE] = {16, 6, {137,103,69,35,120,86,52,18}},
+    [S_UPDOWN] = {16, 10, {1,2,3,4,5,4,3,2}},
+    [S_SWELL] = {16, 15, {0,0,0,0,4,0,0,0}},
 };
 /* Bass degrees: 0 root, 1 fifth, 2 octave. */
 static const struct sequence basses[BASSES] = {
-    [B_DRONE]   = {16, 15, {0,R,R,R, R,R,R,R, R,R,R,R, R,R,R,R}},
-    [B_PULSE8]  = {16,  6, {0,R,0,R, 0,R,0,R, 0,R,0,R, 0,R,0,R}},
-    [B_PULSE16] = {16,  4, {0,0,2,0, 0,0,2,0, 0,0,2,0, 0,2,1,0}},
-    [B_SYNC]    = {32,  6, {0,R,R,0, R,R,0,R, 2,R,R,0, R,R,1,R, 0,R,R,0, R,R,0,R, 2,R,1,R, 0,R,R,R}},
-    [B_HEART]   = {16, 11, {0,R,R,0, R,R,R,R, 0,R,R,0, R,R,R,R}},
-    [B_QUARTER] = {16, 11, {0,R,R,R, 0,R,R,R, 0,R,R,R, 1,R,R,R}},
-    [B_DOTTED]  = {16,  8, {0,R,R,0, R,R,0,R, R,0,R,R, 2,R,1,R}},
+    [B_DRONE] = {16, 15, {1,0,0,0,0,0,0,0}},
+    [B_PULSE8] = {16, 6, {1,1,1,1,1,1,1,1}},
+    [B_PULSE16] = {16, 4, {17,19,17,19,17,19,49,18}},
+    [B_SYNC] = {32, 6, {1,16,0,1,3,16,0,2,1,16,0,1,3,2,1,0}},
+    [B_HEART] = {16, 11, {1,16,0,0,1,16,0,0}},
+    [B_QUARTER] = {16, 11, {1,0,1,0,1,0,2,0}},
+    [B_DOTTED] = {16, 8, {1,16,0,1,16,0,3,2}},
 };
-#undef R
 /* 808 kick (bit 0) and closed hat (bit 10) masks, read from the first 16th. */
 static const uint16_t beat_kick[3] = {[D_HEART] = 0x0909, [D_FLOOR] = 0x1111, [D_HALF] = 0x0401};
 static const uint16_t beat_hat[3]  = {[D_HEART] = 0x0000, [D_FLOOR] = 0x4444, [D_HALF] = 0x1111};
@@ -306,7 +304,7 @@ static void layer_cells(const struct scene *s, unsigned layer, unsigned root, un
             }
         } else if (v->role == BASS) {
             const struct sequence *q = &basses[pattern];
-            int d = q->degree[at];
+            int d = sequence_degree(q, at);
             if (d >= 0) {
                 static const uint8_t offset[3] = {0, 7, 12};
                 unsigned drone = pattern == B_DRONE;
@@ -316,7 +314,7 @@ static void layer_cells(const struct scene *s, unsigned layer, unsigned root, un
             }
         } else { /* ARP and LEAD sequences */
             const struct sequence *q = &sequences[pattern];
-            int d = q->degree[at];
+            int d = sequence_degree(q, at);
             if (d >= 0) {
                 unsigned base = register_base(v->role == LEAD ? 60 : 48, root); /* low-mid: warm, not music box */
                 n.note = (uint8_t)(base + chord_tones[quality][d]);

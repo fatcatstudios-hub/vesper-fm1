@@ -10,14 +10,9 @@
 
 enum {
     LUSH_NONE,
-    LUSH_AIR_PAD,     /* 3 detuned saws, slow filter swell, chorus */
-    LUSH_STRINGS,     /* saw + PWM pulse ensemble, chorus */
     LUSH_GLASS_PLUCK, /* analog pluck: saw/pulse, fast filter envelope */
-    LUSH_HARP,        /* plucked string (Karplus-Strong), bright */
-    LUSH_FELT,        /* plucked string, dark hammer, sine body */
     LUSH_WARM_BASS,   /* saw + sub, low filter */
     LUSH_SUB,         /* sine sub with a little warmth */
-    LUSH_AIR_BELL,    /* bright string + octave sine shimmer */
     LUSH_DETUNE_PLUCK,/* stereo unison pluck, wide detune */
     LUSH_SUPERSAW,    /* stereo supersaw sequence voice */
     LUSH_JUNO_ARP,    /* detuned pulse pair, Juno-style arp */
@@ -26,7 +21,6 @@ enum {
     LUSH_MARIMBA,     /* sampled marimba (slots 5-7) */
     LUSH_GLOCK,       /* sampled glockenspiel, an octave up (slot 8) */
     LUSH_HALO_PLUCK,  /* soft synth pluck inside a big airy halo */
-    LUSH_AIR_SEQ,     /* pure pitched breath: rhythmic texture, no oscillator */
     LUSH_HANDPAN,     /* modal: tuned 1:2:3 metal tongue, long ring */
     LUSH_KALIMBA,     /* modal: tine with inharmonic overtones and a bright click */
     LUSH_VOX_OOH,     /* formant voice, "ooh" opening to "aah", delayed vibrato */
