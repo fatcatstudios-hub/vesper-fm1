@@ -50,12 +50,12 @@ const playing = render(44100 * 4 / 128);
 check(playing.rms > 0.003, `scene plays audio (rms ${playing.rms.toFixed(4)}, peak ${playing.peak.toFixed(3)})`);
 check(playing.peak < 1.0, 'no hard clipping');
 
-// Loop lengths: DOTTED 8TH runs 16 / 48 / 16 / 32-step loops against each other.
+// Loop lengths: DOTTED 8TH runs 16 / 48 / 16 / 16-step loops against each other.
 const st = mem().slice(x.sim_state(), x.sim_state() + 225);
 const lengths = [0, 1, 2, 3].map((t) => st[209 + t]);
-check(JSON.stringify(lengths) === JSON.stringify([16, 48, 16, 32]), `polymetric loop lengths ${lengths.join('/')}`);
+check(JSON.stringify(lengths) === JSON.stringify([16, 48, 16, 16]), `polymetric loop lengths ${lengths.join('/')}`);
 
-// Chord follow is tested on MORNING: piano ARP (track 1), marimba LEAD, bass, air LEAD (no pads).
+// Chord follow is tested on MORNING: kalimba ARP (track 1), marimba LEAD, bass, vocal LEAD (no pads).
 x.sim_preset(5); render(10);
 check(cstr(x.sim_project_name()).trim() === names[5], `loaded "${names[5]}" for chord-follow tests`);
 let p = exportProject();
@@ -69,7 +69,7 @@ render(10);
 p = exportProject();
 const am = [0, 2, 3].map((t) => cell(p, t, 0));
 console.log('      A minor:', am.map((c) => name(c.note)).join(' / '));
-check(cell(p, 3, 0).note % 12 === 9, 'air layer re-pitched to A');
+check(cell(p, 3, 0).note % 12 === 9, 'vocal layer re-pitched to A');
 check(!(cell(p, 0, 0).bits & 31) && !(cell(p, 3, 0).bits & 31), 'no chord (pad) cells anywhere in the scene');
 check(am[1].note % 12 === 9, 'bass follows to A');
 check(am[0].note % 12 === 9, 'arp starts on the new root');

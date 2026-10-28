@@ -27,6 +27,13 @@ enum {
     LUSH_GLOCK,       /* sampled glockenspiel, an octave up (slot 8) */
     LUSH_HALO_PLUCK,  /* soft synth pluck inside a big airy halo */
     LUSH_AIR_SEQ,     /* pure pitched breath: rhythmic texture, no oscillator */
+    LUSH_HANDPAN,     /* modal: tuned 1:2:3 metal tongue, long ring */
+    LUSH_KALIMBA,     /* modal: tine with inharmonic overtones and a bright click */
+    LUSH_VOX_OOH,     /* formant voice, "ooh" opening to "aah", delayed vibrato */
+    LUSH_VOX_EE,      /* formant voice, "ee" rounding to "oh" */
+    LUSH_MUTED_GTR,   /* palm-muted plucked string through an amp-style filter */
+    LUSH_REV_PIANO,   /* sampled piano played backwards, swells into the next beat */
+    LUSH_REV_GLOCK,   /* glockenspiel backwards */
     LUSH_PATCHES
 };
 

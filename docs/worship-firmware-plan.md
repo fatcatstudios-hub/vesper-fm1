@@ -73,6 +73,17 @@ Fork of M-VAVE's official **FM1 Open V14** (github.com/m-vave/fm1_open, GPLv3 + 
   - Levels re-balanced: scenes within 2.9 dB, peaks ≤ 0.72.
   - Diagnostic switches `LUSH_AIR_SCALE`, `LUSH_DRIVE`, `LUSH_ANALOG` are kept for host measurements.
 
+- **Beyond-GM sounds** (Zach: "any other sounds we can do beside the basic GM stuff" → "build it"):
+  - **HANDPAN, KALIMBA** (modal synthesis): four tuned sine partials, each with its own decay, all struck together.
+    - Handpan partials 1:2:3 plus a faint shimmer; rings about 4 s.
+    - Kalimba tine 1 : 5.4 : 13.2 plus a body octave; about 2 s.
+    - Both within 1 cent, fuzz about −42 dB. No noise, no sample memory.
+  - **VOX OOH, VOX EE** (formant voice): detuned saws through three parallel vowel band-passes that morph with the filter envelope ("ooh"→"aah", "ee"→"oh"), with tempo-locked motion and a 5.2 Hz vibrato fading in to ±14 cents.
+  - **MUTED GTR**: plucked-string model with palm-mute damping (−40 dB in 0.28 s) through an amp-style filter. Paired with the dual delay for the dotted-8th guitar sound on keys.
+  - **REV PIANO, REV GLOCK**: bank samples played backwards. The start point is computed from the tempo so the swell lands on the attack exactly 2 beats later (measured within 40 ms). Whole SEA chunks are decoded into the voice's string-model memory, so no extra RAM. Note-offs are ignored so swells always land.
+  - New S_SWELL sequence (trigger on beat 3) so reverse swells hit the downbeat.
+  - Placed in DOTTED 8TH, ROLLING 3S, GALLOP, MORNING, SANCTUARY, CASCADE, QUIET PLACE, SYNC LINES, SPIRIT MOVE, ALTAR CALL. Scenes within 2.9 dB; busy-scene CPU about 930 cycles/sample on x86.
+
 **Not started yet:** shimmer/compression, simple pattern controls, an always-visible key display, and building and flashing real firmware.
 
 ## Architecture findings

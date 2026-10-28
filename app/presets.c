@@ -35,7 +35,7 @@ struct scene {
 /* Pattern ids: ARP/LEAD use the sequence bank, BASS the bass bank, BEAT the
  * beat bank; PAD ignores it (sustained open chord). */
 enum { S_DOTTED8, S_ROLL3, S_STAIRS, S_OCTAVES, S_GALLOP, S_SYNC, S_DOTTED_RISE, S_PULSE16,
-       S_8THS, S_BELLS, S_SPARSE, S_PAIRS, S_CASCADE, S_UPDOWN, SEQUENCES };
+       S_8THS, S_BELLS, S_SPARSE, S_PAIRS, S_CASCADE, S_UPDOWN, S_SWELL, SEQUENCES };
 enum { B_DRONE, B_PULSE8, B_PULSE16, B_SYNC, B_HEART, B_QUARTER, B_DOTTED, BASSES };
 enum { D_HEART, D_FLOOR, D_HALF };
 #define PAD_ LUSH_AIR_PAD
@@ -55,6 +55,13 @@ enum { D_HEART, D_FLOOR, D_HALF };
 #define GLK_ LUSH_GLOCK
 #define HAL_ LUSH_HALO_PLUCK
 #define AIR_ LUSH_AIR_SEQ
+#define HPN_ LUSH_HANDPAN
+#define KAL_ LUSH_KALIMBA
+#define VOO_ LUSH_VOX_OOH
+#define VEE_ LUSH_VOX_EE
+#define MGT_ LUSH_MUTED_GTR
+#define RVP_ LUSH_REV_PIANO
+#define RVG_ LUSH_REV_GLOCK
 #define FM1_ LUSH_NONE
 /* Sequence-first scenes: two interlocking sequences (mid ARP + high LEAD), a
  * sequenced bass, and a beat. Only four scenes keep a (quiet) pad. Loops of
@@ -64,21 +71,21 @@ enum { D_HEART, D_FLOOR, D_HALF };
  * a pitched-breath halo), tempo-locked filter motion and shimmer do the
  * atmosphere that pads used to. */
 static const struct scene scenes[GROOVE_FACTORY_PROJECTS] = {
-    {"DOTTED 8TH",  72, 4,104,64,96, {LU(ARP,104,7,13), LU(LEAD,86,10,12), LU(BASS,98,1,2), LU(LEAD,74,13,10)},  {S_DOTTED8,S_ROLL3,B_PULSE8,S_SPARSE},     {JUN_,HAL_,DBS_,GLK_}, 15},
-    {"ROLLING 3S",  76, 7,104,60,94, {LU(ARP,104,7,12), LU(LEAD,84,11,12), LU(BASS,96,1,0), DR(66)},              {S_ROLL3,S_SPARSE,B_HEART,D_HEART},       {DPL_,GLK_,WBS_,FM1_}, 20},
+    {"DOTTED 8TH",  72, 4,104,64,96, {LU(ARP,124,7,13), LU(LEAD,86,10,12), LU(BASS,98,1,2), LU(LEAD,74,13,10)},  {S_8THS,S_ROLL3,B_PULSE8,S_SWELL},         {MGT_,HAL_,DBS_,RVG_}, 15},
+    {"ROLLING 3S",  76, 7,104,60,94, {LU(ARP,104,7,12), LU(LEAD,84,11,12), LU(BASS,96,1,0), DR(66)},              {S_ROLL3,S_SPARSE,B_HEART,D_HEART},       {DPL_,HPN_,WBS_,FM1_}, 20},
     {"STAIRCASE",   80, 2, 98,58,92, {LU(ARP,96,6,11), LU(LEAD,90,9,13), LU(BASS,100,1,1), DR(68)},               {S_STAIRS,S_DOTTED8,B_SYNC,D_HALF},       {SAW_,MAR_,DBS_,FM1_}, 10},
     {"OCTAVE RUN",  84, 9, 96,56,90, {LU(ARP,104,6,10), LU(LEAD,86,8,12), LU(BASS,100,1,0), DR(70)},              {S_OCTAVES,S_SYNC,B_PULSE16,D_FLOOR},     {JUN_,GLS_,DBS_,FM1_}, 10},
-    {"GALLOP",      88,11, 96,58,90, {LU(ARP,104,6,11), LU(LEAD,80,11,13), LU(BASS,100,1,0), DR(70)},             {S_GALLOP,S_SPARSE,B_PULSE8,D_FLOOR},     {DPL_,GLK_,DBS_,FM1_}, 15},
-    {"MORNING",     70, 0,106,62,94, {LU(ARP,116,8,12), LU(LEAD,102,10,13), LU(BASS,96,1,0), LU(LEAD,76,13,11)},   {S_8THS,S_DOTTED_RISE,B_DOTTED,S_SPARSE},{PNO_,MAR_,WBS_,GLK_}, 20},
-    {"SANCTUARY",   66, 5,110,60,96, {LU(ARP,118,10,12), LU(LEAD,108,11,13), LU(BASS,100,1,0), LU(ARP,116,9,12)},    {S_ROLL3,S_DOTTED_RISE,B_HEART,S_SPARSE}, {HAL_,GLK_,WBS_,PNO_}, 30},
+    {"GALLOP",      88,11, 96,58,90, {LU(ARP,104,6,11), LU(LEAD,80,11,13), LU(BASS,100,1,0), DR(70)},             {S_GALLOP,S_SPARSE,B_PULSE8,D_FLOOR},     {DPL_,VEE_,DBS_,FM1_}, 15},
+    {"MORNING",     70, 0,106,62,94, {LU(ARP,116,8,12), LU(LEAD,102,10,13), LU(BASS,96,1,0), LU(LEAD,76,13,11)},   {S_8THS,S_DOTTED_RISE,B_DOTTED,S_DOTTED8},{KAL_,MAR_,WBS_,VOO_}, 20},
+    {"SANCTUARY",   66, 5,110,60,96, {LU(ARP,118,10,12), LU(LEAD,108,11,13), LU(BASS,100,1,0), LU(ARP,116,9,12)},    {S_ROLL3,S_DOTTED_RISE,B_HEART,S_SWELL},  {HAL_,GLK_,WBS_,RVP_}, 30},
     {"HEARTBEAT",   74, 4,102,60,92, {LU(ARP,116,7,11), LU(LEAD,94,9,13), LU(BASS,100,1,0), DR(70)},              {S_PAIRS,S_DOTTED8,B_HEART,D_HEART},      {PNO_,DPL_,WBS_,FM1_}, 15},
     {"GLORY BUILD", 86, 7, 94,54,88, {LU(ARP,86,5,10), LU(LEAD,86,8,12), LU(BASS,102,1,0), DR(72)},               {S_PULSE16,S_ROLL3,B_PULSE16,D_FLOOR},    {SAW_,JUN_,DBS_,FM1_}, 10},
-    {"CASCADE",     76, 0,104,62,94, {LU(ARP,116,8,12), LU(LEAD,92,10,13), LU(BASS,96,1,0), LU(LEAD,86,12,12)},   {S_CASCADE,S_DOTTED8,B_QUARTER,S_SPARSE}, {MAR_,HAL_,SUB_,GLK_}, 20},
+    {"CASCADE",     76, 0,104,62,94, {LU(ARP,116,8,12), LU(LEAD,92,10,13), LU(BASS,96,1,0), LU(LEAD,86,12,12)},   {S_CASCADE,S_DOTTED8,B_QUARTER,S_SPARSE}, {MAR_,HAL_,SUB_,HPN_}, 20},
     {"ANTHEM 8THS", 90, 9, 94,52,88, {LU(ARP,102,5,10), LU(LEAD,76,9,12), LU(BASS,102,1,0), DR(72)},              {S_PULSE16,S_DOTTED8,B_PULSE8,D_FLOOR},   {DPL_,SAW_,DBS_,FM1_}, 10},
-    {"QUIET PLACE", 60,10,110,60,96, {LU(ARP,120,13,11), LU(ARP,122,11,12), LU(BASS,104,1,0), LU(LEAD,112,12,13)},    {S_DOTTED8,S_SPARSE,B_QUARTER,S_DOTTED_RISE},{HRP_,PNO_,SUB_,GLK_}, 30},
-    {"SYNC LINES",  78, 2,100,60,92, {LU(ARP,104,6,12), LU(LEAD,84,9,12), LU(BASS,100,1,1), DR(68)},              {S_SYNC,S_ROLL3,B_SYNC,D_HALF},           {JUN_,DPL_,DBS_,FM1_}, 15},
-    {"SPIRIT MOVE", 82,11,100,60,92, {LU(ARP,116,7,12), LU(LEAD,92,10,13), LU(BASS,100,1,0), DR(68)},             {S_DOTTED_RISE,S_SPARSE,B_DOTTED,D_HEART},{GLS_,SAW_,WBS_,FM1_}, 15},
-    {"ALTAR CALL",  62, 4,110,60,96, {LU(ARP,116,10,12), LU(ARP,116,10,12), LU(BASS,100,1,0), LU(LEAD,104,13,13)},    {S_SYNC,S_UPDOWN,B_DOTTED,S_SPARSE},      {HAL_,PNO_,WBS_,GLK_}, 30},
+    {"QUIET PLACE", 60,10,110,60,96, {LU(ARP,102,13,11), LU(ARP,122,11,12), LU(BASS,104,1,0), LU(LEAD,112,12,13)},    {S_DOTTED8,S_SPARSE,B_QUARTER,S_SWELL},{HPN_,PNO_,SUB_,RVP_}, 30},
+    {"SYNC LINES",  78, 2,100,60,92, {LU(ARP,104,6,12), LU(LEAD,84,9,12), LU(BASS,100,1,1), DR(68)},              {S_SYNC,S_ROLL3,B_SYNC,D_HALF},           {JUN_,KAL_,DBS_,FM1_}, 15},
+    {"SPIRIT MOVE", 82,11,100,60,92, {LU(ARP,126,7,12), LU(LEAD,92,10,13), LU(BASS,100,1,0), DR(68)},             {S_DOTTED_RISE,S_SPARSE,B_DOTTED,D_HEART},{MGT_,SAW_,WBS_,FM1_}, 15},
+    {"ALTAR CALL",  62, 4,110,60,96, {LU(ARP,116,10,12), LU(ARP,116,10,12), LU(BASS,100,1,0), LU(LEAD,104,13,13)},    {S_SYNC,S_UPDOWN,B_DOTTED,S_SPARSE},      {HAL_,PNO_,WBS_,VOO_}, 30},
     {"NEON SKY",    92, 8, 94,56,90, {LU(ARP,84,6,11), LU(LEAD,72,8,12), LU(BASS,102,1,0), DR(72)},              {S_OCTAVES,S_CASCADE,B_PULSE16,D_FLOOR},  {SAW_,JUN_,DBS_,FM1_}, 10}
 };
 #undef LU
@@ -230,6 +237,8 @@ static const struct sequence sequences[SEQUENCES] = {
     [S_PAIRS]       = {16,  9, {3,R,4,R, 3,R,1,R, 3,R,4,R, 5,R,4,R}},
     [S_CASCADE]     = {16,  6, {8,7,6,5, 4,3,2,1, 7,6,5,4, 3,2,1,0}},
     [S_UPDOWN]      = {16, 10, {0,R,1,R, 2,R,3,R, 4,R,3,R, 2,R,1,R}},
+    /* Reverse swells: triggered mid-bar so a 2-beat swell lands on the downbeat. */
+    [S_SWELL]       = {16, 15, {R,R,R,R, R,R,R,R, 3,R,R,R, R,R,R,R}},
 };
 /* Bass degrees: 0 root, 1 fifth, 2 octave. */
 static const struct sequence basses[BASSES] = {

@@ -16,7 +16,8 @@ const render = (seconds, keep = true) => {
 const KEYS = { E: [11, 15, 18], 'C#m': [8, 11, 15], A: [4, 8, 11], B: [6, 10, 13], 'F#m': [1, 4, 8], Am: [4, 7, 11], F: [0, 4, 7],
                Esus2: [11, 13, 18], G: [2, 6, 9], Em: [11, 14, 18], C: [7, 11, 14], D: [9, 13, 16],
                Bm: [6, 9, 13], Ab: [3, 7, 10], Fm: [0, 3, 7], Db: [8, 12, 15], Eb: [10, 14, 17],
-               Dm: [9, 12, 16], Bb: [5, 9, 12] };
+               Dm: [9, 12, 16], Bb: [5, 9, 12],
+               'G#m': [3, 6, 10], 'F#': [1, 5, 8] };
 const chord = (name) => {
   for (const k of KEYS[name]) x.sim_control(1, k, 1);
   render(0.03); for (const k of KEYS[name]) x.sim_control(1, k, 0);
@@ -32,12 +33,12 @@ const scene = (slot, bpm, progression, barsEach) => {
   render(3);
 };
 x.sim_boot(1); render(0.5, false);
-scene(0, 72, ['E', 'C#m', 'A', 'B'], 2);       // DOTTED 8TH  - Juno arp, halo pluck 3s, detune bass, air seq; shimmer
-scene(6, 66, ['F', 'Dm', 'Bb', 'C'], 2);       // SANCTUARY   - halo pluck rolling 3s, glock rise, warm bass, sparse piano
-scene(5, 70, ['C', 'Am', 'F', 'G'], 2);        // MORNING     - piano 8ths, marimba rise, warm bass, air seq
-scene(11, 60, ['A', 'F#m', 'D', 'E'], 2);      // QUIET PLACE - breath seq, sparse piano, sub, glock; heavy shimmer
-scene(9, 76, ['D', 'Bm', 'G', 'A'], 2);        // CASCADE     - marimba cascade, halo pluck, sub, glock
-scene(14, 62, ['E', 'C#m', 'A', 'B'], 2);      // ALTAR CALL  - halo sync, piano up-down, warm bass, glock
+scene(0, 72, ['E', 'C#m', 'A', 'B'], 2);       // DOTTED 8TH  - muted guitar 8ths into the dual delay, halo 3s, bass, reverse glock swells
+scene(5, 70, ['C', 'Am', 'F', 'G'], 2);        // MORNING     - kalimba 8ths, marimba rise, warm bass, "ooh-aah" vocal chops
+scene(11, 60, ['A', 'F#m', 'D', 'E'], 2);      // QUIET PLACE - handpan, sparse piano, sub, reverse piano swells
+scene(1, 76, ['G', 'Em', 'C', 'D'], 2);        // ROLLING 3S  - detune pluck 3s, handpan, warm bass, heartbeat
+scene(6, 66, ['F', 'Dm', 'Bb', 'C'], 2);       // SANCTUARY   - halo 3s, glock rise, warm bass, reverse piano swells
+scene(4, 88, ['B', 'G#m', 'E', 'F#'], 2);      // GALLOP      - detune gallop, "ee-oh" vocal, bass, four on the floor
 
 let peak = 0; for (const b of out) for (const v of b) peak = Math.max(peak, Math.abs(v));
 const gain = peak > 0 ? 0.89 / peak : 1;
