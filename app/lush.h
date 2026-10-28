@@ -25,6 +25,8 @@ enum {
     LUSH_PIANO,       /* sampled soft upright piano (bank slots 1-4) */
     LUSH_MARIMBA,     /* sampled marimba (slots 5-7) */
     LUSH_GLOCK,       /* sampled glockenspiel, an octave up (slot 8) */
+    LUSH_HALO_PLUCK,  /* soft synth pluck inside a big airy halo */
+    LUSH_AIR_SEQ,     /* pure pitched breath: rhythmic texture, no oscillator */
     LUSH_PATCHES
 };
 
@@ -32,7 +34,7 @@ enum {
 void lush_layer(unsigned track, unsigned patch, unsigned volume, unsigned reverb, unsigned delay);
 /* Control task. fx: reverb decay, delay byte, feedback, return level (0..127),
  * delay_ticks: applied delay time at 44.1 kHz / 8 (groove_delay_ticks()). */
-void lush_effects(const uint8_t fx[4], unsigned delay_ticks);
+void lush_effects(const uint8_t fx[4], unsigned delay_ticks, unsigned tempo, unsigned shimmer);
 const char *lush_patch_name(unsigned patch);
 
 /* Control task, from the sample bank loader: bind one of the eight shared
@@ -45,6 +47,8 @@ void lush_sample_bind(unsigned slot, const uint8_t *data, unsigned bytes, unsign
 unsigned lush_owns(unsigned track);
 void lush_note(unsigned track, unsigned note, unsigned velocity);
 void lush_track_reset(unsigned track);
+/* Transport messages (0xfa start, 0xfc stop): motion LFOs restart on the downbeat. */
+void lush_transport(uint8_t status);
 /* Adds FM1_BLOCK_FRAMES stereo frames of signed Q23 audio into output. */
 void lush_render(int32_t *output);
 #endif

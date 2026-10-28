@@ -56,6 +56,14 @@ Fork of M-VAVE's official **FM1 Open V14** (github.com/m-vave/fm1_open, GPLv3 + 
   - Credits: `docs/SAMPLE-CREDITS.md`.
   - **To load on hardware:** write `WORSHIP-SAMPLES.bin` to the device with the workbench's sample bank restore. Back up the current bank first, since this replaces M-VAVE's factory drum samples (the worship scenes use the 808 engine for drums).
 
+- **Omnisphere pass** (Zach: "still too many pads, and it sounds like a 90's korg synth, I need omnisphere vibes"):
+  - **No pads or drones left.** All PAD layers and drone basses are gone; sustained quarter-note bells became dotted 8ths. Measured "static wash" (stretches where the level holds still like a pad): 4% → 0%.
+  - **Hybrid voices:** every pluck and sample now carries a pitched-breath "air" halo (noise through a narrow band-pass at the note, an octave up) on its own envelope. It blooms after the attack and settles in about a second, so plucks and samples stop sounding like dry 90s ROMpler presets.
+  - New HALO PLUCK (soft synth pluck inside a big halo) and AIR SEQ (pure pitched-breath sequence, a rhythmic texture bed).
+  - **Constant motion:** tempo-locked cutoff LFOs per patch (16th to 4 bars, restarting with the transport) and a slow 2-bar auto-pan per voice. Measured: brightness swings about 1.3× over the cycle on a held note.
+  - **Shimmer reverb:** an octave-up granular pitch shifter in the plate's feedback, set per scene (20–80). Stable at maximum: the tail decays to silence, and upper-octave energy in the tail rises from 0.16 to 0.91.
+  - Levels: scenes within 3.6 dB, peaks ≤ 0.71. CPU: about 1,400 cycles/sample on x86 for a busy halo scene (≈ +25% over the previous pass).
+
 **Not started yet:** shimmer/compression, simple pattern controls, an always-visible key display, and building and flashing real firmware.
 
 ## Architecture findings

@@ -26,6 +26,7 @@ struct scene {
     struct part part[LAYERS];
     uint8_t pattern[LAYERS];
     uint8_t lush[LAYERS]; /* LUSH patch per layer; LUSH_NONE keeps the FM1 engine */
+    uint8_t shimmer;      /* octave-up shimmer fed back into the reverb, 0..127 */
 };
 /* sends: reverb 0..15 + 16 * delay 0..15. LUSH layers park a silent PSG in
  * the engine; the LUSH engine plays their notes. */
@@ -52,28 +53,33 @@ enum { D_HEART, D_FLOOR, D_HALF };
 #define PNO_ LUSH_PIANO
 #define MAR_ LUSH_MARIMBA
 #define GLK_ LUSH_GLOCK
+#define HAL_ LUSH_HALO_PLUCK
+#define AIR_ LUSH_AIR_SEQ
 #define FM1_ LUSH_NONE
 /* Sequence-first scenes: two interlocking sequences (mid ARP + high LEAD), a
  * sequenced bass, and a beat. Only four scenes keep a (quiet) pad. Loops of
  * different lengths (16/32/48 steps) stay locked to the bar but keep evolving.
  * Delay sends are high; the dual delay does the rest. */
+/* No pads, no drones: every layer moves. Hybrid voices (synth or sample plus
+ * a pitched-breath halo), tempo-locked filter motion and shimmer do the
+ * atmosphere that pads used to. */
 static const struct scene scenes[GROOVE_FACTORY_PROJECTS] = {
-    {"DOTTED 8TH",  72, 4,104,64,96, {LU(ARP,106,7,13), LU(LEAD,84,10,11), LU(BASS,98,1,2), LU(LEAD,74,12,12)}, {S_DOTTED8,S_ROLL3,B_PULSE8,S_SPARSE},  {JUN_,DPL_,DBS_,GLK_}},
-    {"ROLLING 3S",  76, 7,106,60,94, {LU(ARP,104,7,12), LU(LEAD,82,11,12), LU(BASS,94,2,0), DR(66)},             {S_ROLL3,S_BELLS,B_DRONE,D_HEART},     {DPL_,GLK_,SUB_,FM1_}},
-    {"STAIRCASE",   80, 2, 98,58,92, {LU(ARP,96,6,11), LU(LEAD,88,9,13), LU(BASS,100,1,1), DR(68)},              {S_STAIRS,S_DOTTED8,B_SYNC,D_HALF},    {SAW_,MAR_,DBS_,FM1_}},
-    {"OCTAVE RUN",  84, 9, 96,56,90, {LU(ARP,104,6,10), LU(LEAD,86,8,12), LU(BASS,100,1,0), DR(70)},             {S_OCTAVES,S_SYNC,B_PULSE16,D_FLOOR},  {JUN_,GLS_,DBS_,FM1_}},
-    {"GALLOP",      88,11, 96,58,90, {LU(ARP,104,6,11), LU(LEAD,78,11,13), LU(BASS,100,1,0), DR(70)},            {S_GALLOP,S_SPARSE,B_PULSE8,D_FLOOR},  {DPL_,GLK_,DBS_,FM1_}},
-    {"MORNING",     70, 0,108,62,94, {LU(ARP,104,8,12), LU(LEAD,92,10,13), LU(BASS,92,2,0), LU(PAD,70,13,2)},    {S_8THS,S_DOTTED_RISE,B_DRONE,0},      {PNO_,MAR_,SUB_,PAD_}},
-    {"SANCTUARY",   66, 5,112,60,96, {LU(PAD,76,14,2), LU(LEAD,90,11,13), LU(BASS,92,2,0), LU(ARP,92,9,12)},     {0,S_DOTTED_RISE,B_DRONE,S_SPARSE},    {STR_,GLK_,SUB_,PNO_}},
-    {"HEARTBEAT",   74, 4,102,60,92, {LU(ARP,118,7,11), LU(LEAD,96,9,13), LU(BASS,100,1,0), DR(70)},             {S_PAIRS,S_DOTTED8,B_HEART,D_HEART},   {PNO_,DPL_,WBS_,FM1_}},
-    {"GLORY BUILD", 86, 7, 94,54,88, {LU(ARP,98,5,10), LU(LEAD,86,8,12), LU(BASS,102,1,0), DR(72)},              {S_PULSE16,S_ROLL3,B_PULSE16,D_FLOOR}, {SAW_,JUN_,DBS_,FM1_}},
-    {"CASCADE",     76, 0,104,62,94, {LU(ARP,118,8,12), LU(LEAD,100,9,13), LU(BASS,96,2,0), LU(LEAD,88,12,12)},   {S_CASCADE,S_DOTTED8,B_QUARTER,S_SPARSE},{MAR_,GLS_,SUB_,GLK_}},
-    {"ANTHEM 8THS", 90, 9, 94,52,88, {LU(ARP,102,5,10), LU(LEAD,74,9,11), LU(BASS,102,1,0), DR(72)},             {S_PULSE16,S_BELLS,B_PULSE8,D_FLOOR},  {DPL_,SAW_,DBS_,FM1_}},
-    {"QUIET PLACE", 60,10,114,60,96, {LU(PAD,74,15,2), LU(ARP,92,11,12), LU(BASS,90,2,0), LU(LEAD,84,12,13)},    {0,S_SPARSE,B_DRONE,S_DOTTED_RISE},    {PAD_,PNO_,SUB_,GLK_}},
-    {"SYNC LINES",  78, 2,100,60,92, {LU(ARP,104,6,12), LU(LEAD,84,9,12), LU(BASS,100,1,1), DR(68)},             {S_SYNC,S_ROLL3,B_SYNC,D_HALF},        {JUN_,DPL_,DBS_,FM1_}},
-    {"SPIRIT MOVE", 82,11,100,60,92, {LU(ARP,116,7,12), LU(LEAD,92,10,13), LU(BASS,100,1,0), DR(68)},            {S_DOTTED_RISE,S_SPARSE,B_DOTTED,D_HEART},{GLS_,SAW_,WBS_,FM1_}},
-    {"ALTAR CALL",  62, 4,112,60,96, {LU(PAD,74,15,2), LU(ARP,96,10,12), LU(BASS,90,2,0), LU(LEAD,82,13,13)},    {0,S_UPDOWN,B_DRONE,S_SPARSE},         {STR_,PNO_,SUB_,GLK_}},
-    {"NEON SKY",    92, 8, 94,56,90, {LU(ARP,100,6,11), LU(LEAD,84,8,12), LU(BASS,102,1,0), DR(72)},             {S_OCTAVES,S_CASCADE,B_PULSE16,D_FLOOR},{SAW_,JUN_,DBS_,FM1_}}
+    {"DOTTED 8TH",  72, 4,104,64,96, {LU(ARP,104,7,13), LU(LEAD,86,10,12), LU(BASS,98,1,2), LU(LEAD,74,13,10)},  {S_DOTTED8,S_ROLL3,B_PULSE8,S_PULSE16},    {JUN_,HAL_,DBS_,AIR_}, 30},
+    {"ROLLING 3S",  76, 7,104,60,94, {LU(ARP,104,7,12), LU(LEAD,84,11,12), LU(BASS,96,1,0), DR(66)},              {S_ROLL3,S_SPARSE,B_HEART,D_HEART},       {DPL_,GLK_,WBS_,FM1_}, 35},
+    {"STAIRCASE",   80, 2, 98,58,92, {LU(ARP,96,6,11), LU(LEAD,90,9,13), LU(BASS,100,1,1), DR(68)},               {S_STAIRS,S_DOTTED8,B_SYNC,D_HALF},       {SAW_,MAR_,DBS_,FM1_}, 20},
+    {"OCTAVE RUN",  84, 9, 96,56,90, {LU(ARP,104,6,10), LU(LEAD,86,8,12), LU(BASS,100,1,0), DR(70)},              {S_OCTAVES,S_SYNC,B_PULSE16,D_FLOOR},     {JUN_,GLS_,DBS_,FM1_}, 20},
+    {"GALLOP",      88,11, 96,58,90, {LU(ARP,104,6,11), LU(LEAD,80,11,13), LU(BASS,100,1,0), DR(70)},             {S_GALLOP,S_SPARSE,B_PULSE8,D_FLOOR},     {DPL_,GLK_,DBS_,FM1_}, 25},
+    {"MORNING",     70, 0,106,62,94, {LU(ARP,108,8,12), LU(LEAD,94,10,13), LU(BASS,96,1,0), LU(LEAD,76,13,11)},   {S_8THS,S_DOTTED_RISE,B_DOTTED,S_DOTTED8},{PNO_,MAR_,WBS_,AIR_}, 40},
+    {"SANCTUARY",   66, 5,110,60,96, {LU(ARP,100,10,12), LU(LEAD,90,11,13), LU(BASS,96,1,0), LU(ARP,96,9,12)},    {S_ROLL3,S_DOTTED_RISE,B_HEART,S_SPARSE}, {HAL_,GLK_,WBS_,PNO_}, 60},
+    {"HEARTBEAT",   74, 4,102,60,92, {LU(ARP,116,7,11), LU(LEAD,94,9,13), LU(BASS,100,1,0), DR(70)},              {S_PAIRS,S_DOTTED8,B_HEART,D_HEART},      {PNO_,DPL_,WBS_,FM1_}, 30},
+    {"GLORY BUILD", 86, 7, 94,54,88, {LU(ARP,98,5,10), LU(LEAD,86,8,12), LU(BASS,102,1,0), DR(72)},               {S_PULSE16,S_ROLL3,B_PULSE16,D_FLOOR},    {SAW_,JUN_,DBS_,FM1_}, 20},
+    {"CASCADE",     76, 0,104,62,94, {LU(ARP,116,8,12), LU(LEAD,92,10,13), LU(BASS,96,1,0), LU(LEAD,86,12,12)},   {S_CASCADE,S_DOTTED8,B_QUARTER,S_SPARSE}, {MAR_,HAL_,SUB_,GLK_}, 35},
+    {"ANTHEM 8THS", 90, 9, 94,52,88, {LU(ARP,102,5,10), LU(LEAD,76,9,12), LU(BASS,102,1,0), DR(72)},              {S_PULSE16,S_DOTTED8,B_PULSE8,D_FLOOR},   {DPL_,SAW_,DBS_,FM1_}, 20},
+    {"QUIET PLACE", 60,10,110,60,96, {LU(ARP,84,13,11), LU(ARP,96,11,12), LU(BASS,94,1,0), LU(LEAD,86,12,13)},    {S_DOTTED8,S_SPARSE,B_QUARTER,S_DOTTED_RISE},{AIR_,PNO_,SUB_,GLK_}, 80},
+    {"SYNC LINES",  78, 2,100,60,92, {LU(ARP,104,6,12), LU(LEAD,84,9,12), LU(BASS,100,1,1), DR(68)},              {S_SYNC,S_ROLL3,B_SYNC,D_HALF},           {JUN_,DPL_,DBS_,FM1_}, 25},
+    {"SPIRIT MOVE", 82,11,100,60,92, {LU(ARP,116,7,12), LU(LEAD,92,10,13), LU(BASS,100,1,0), DR(68)},             {S_DOTTED_RISE,S_SPARSE,B_DOTTED,D_HEART},{GLS_,SAW_,WBS_,FM1_}, 30},
+    {"ALTAR CALL",  62, 4,110,60,96, {LU(ARP,98,10,12), LU(ARP,96,10,12), LU(BASS,94,1,0), LU(LEAD,82,13,13)},    {S_SYNC,S_UPDOWN,B_DOTTED,S_SPARSE},      {HAL_,PNO_,WBS_,GLK_}, 60},
+    {"NEON SKY",    92, 8, 94,56,90, {LU(ARP,100,6,11), LU(LEAD,84,8,12), LU(BASS,102,1,0), DR(72)},              {S_OCTAVES,S_CASCADE,B_PULSE16,D_FLOOR},  {SAW_,JUN_,DBS_,FM1_}, 20}
 };
 #undef LU
 #undef DR
@@ -423,6 +429,8 @@ void worship_poll(void)
         lush_layer(t, patch, view.volume, sends[0], sends[1]);
     }
     uint8_t fx[4];
+    struct groove_view view;
+    groove_get_view(0, 0, &view);
     groove_effects_get(fx);
-    lush_effects(fx, groove_delay_ticks());
+    lush_effects(fx, groove_delay_ticks(), view.tempo, scene >= 0 ? scenes[scene].shimmer : 0);
 }

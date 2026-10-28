@@ -137,6 +137,7 @@ FM1_AUDIO_CODE void groove_midi_track_reset(unsigned track)
 { lush_track_reset(track); enqueue(track & 1U, track, config.flags & 7U, 0xf6, 0, 0); }
 FM1_AUDIO_CODE void groove_midi_transport(unsigned owner, uint8_t status)
 {
+    lush_transport(status); /* motion LFOs restart with the transport */
     if (owner || !(config.flags & CLOCK_OUT) || groove_clock_mode()) return;
     if (status == 0xfa || status == 0xff) {
         clock_phase = resume_phase = 0; clock_first = resume_first = 1;

@@ -15,7 +15,8 @@ const render = (seconds, keep = true) => {
 // Keys: 0 = F3. Each chord is pressed briefly; it latches after release.
 const KEYS = { E: [11, 15, 18], 'C#m': [8, 11, 15], A: [4, 8, 11], B: [6, 10, 13], 'F#m': [1, 4, 8], Am: [4, 7, 11], F: [0, 4, 7],
                Esus2: [11, 13, 18], G: [2, 6, 9], Em: [11, 14, 18], C: [7, 11, 14], D: [9, 13, 16],
-               Bm: [6, 9, 13], Ab: [3, 7, 10], Fm: [0, 3, 7], Db: [8, 12, 15], Eb: [10, 14, 17] };
+               Bm: [6, 9, 13], Ab: [3, 7, 10], Fm: [0, 3, 7], Db: [8, 12, 15], Eb: [10, 14, 17],
+               Dm: [9, 12, 16], Bb: [5, 9, 12] };
 const chord = (name) => {
   for (const k of KEYS[name]) x.sim_control(1, k, 1);
   render(0.03); for (const k of KEYS[name]) x.sim_control(1, k, 0);
@@ -31,12 +32,12 @@ const scene = (slot, bpm, progression, barsEach) => {
   render(3);
 };
 x.sim_boot(1); render(0.5, false);
-scene(5, 70, ['C', 'Am', 'F', 'G'], 2);        // MORNING     - sampled piano 8ths, marimba dotted rise, sub, quiet pad
-scene(9, 76, ['D', 'Bm', 'G', 'A'], 2);        // CASCADE     - marimba cascade, glass pluck, sub, glockenspiel
-scene(7, 74, ['E', 'C#m', 'A', 'B'], 2);       // HEARTBEAT   - piano pairs, detune pluck, warm bass, kick
-scene(2, 80, ['G', 'Em', 'C', 'D'], 2);        // STAIRCASE   - supersaw stairs, marimba dotted, sync bass
-scene(11, 60, ['A', 'F#m', 'D', 'E'], 2);      // QUIET PLACE - pad, sparse piano, sub, glock dotted rise
-scene(14, 62, ['E', 'C#m', 'A', 'B'], 2);      // ALTAR CALL  - strings, piano up-down, sub, glock
+scene(0, 72, ['E', 'C#m', 'A', 'B'], 2);       // DOTTED 8TH  - Juno arp, halo pluck 3s, detune bass, air seq; shimmer
+scene(6, 66, ['F', 'Dm', 'Bb', 'C'], 2);       // SANCTUARY   - halo pluck rolling 3s, glock rise, warm bass, sparse piano
+scene(5, 70, ['C', 'Am', 'F', 'G'], 2);        // MORNING     - piano 8ths, marimba rise, warm bass, air seq
+scene(11, 60, ['A', 'F#m', 'D', 'E'], 2);      // QUIET PLACE - breath seq, sparse piano, sub, glock; heavy shimmer
+scene(9, 76, ['D', 'Bm', 'G', 'A'], 2);        // CASCADE     - marimba cascade, halo pluck, sub, glock
+scene(14, 62, ['E', 'C#m', 'A', 'B'], 2);      // ALTAR CALL  - halo sync, piano up-down, warm bass, glock
 
 let peak = 0; for (const b of out) for (const v of b) peak = Math.max(peak, Math.abs(v));
 const gain = peak > 0 ? 0.89 / peak : 1;

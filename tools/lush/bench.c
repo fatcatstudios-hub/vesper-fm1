@@ -7,11 +7,11 @@ int main(void)
 {
     static int32_t out[256];
     uint8_t fx[4] = {110, 135, 58, 88};
-    lush_effects(fx, 1000);
-    lush_layer(0, LUSH_SUPERSAW, 100, 6, 11);
+    lush_effects(fx, 1000, 80, 60);
+    lush_layer(0, LUSH_HALO_PLUCK, 100, 10, 12);
     lush_layer(1, LUSH_DETUNE_PLUCK, 100, 8, 12);
     lush_layer(2, LUSH_DETUNE_BASS, 100, 1, 0);
-    lush_layer(3, LUSH_AIR_BELL, 90, 13, 9);
+    lush_layer(3, LUSH_AIR_SEQ, 90, 13, 9);
     lush_render(out);
     unsigned pad[4] = {52, 59, 66, 68};
     for (int i = 0; i < 4; ++i) lush_note(0, pad[i], 92);

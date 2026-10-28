@@ -29,7 +29,7 @@ int main(int argc, char **argv)
                 if (fr) lush_sample_bind(i, bankfile + off, by, fr, (const char *)e + 12); } }
     }
     lush_layer(0, patch, 100, atoi(argv[5]), atoi(argv[6]));
-    lush_effects(fx, 1000);
+    lush_effects(fx, 1000, 72, (unsigned)atoi(getenv("SHIMMER") ? getenv("SHIMMER") : "0"));
     lush_render(pcm);
     lush_note(0, note, 100);
     unsigned off = (unsigned)(on * 44100 / 128);
