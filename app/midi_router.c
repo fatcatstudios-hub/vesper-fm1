@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 #include "instrument.h"
+#include "lush.h"
 #include "fm1_engine_control.h"
 #include <string.h>
 #ifdef FM1_HOST_TEST
@@ -41,7 +42,12 @@ static FM1_AUDIO_CODE void barrier(void)
 static unsigned size(unsigned status) { return status >= 0xf8 ? 1 : (status & 0xe0U) == 0xc0U ? 2 : 3; }
 static unsigned channel(unsigned track) { return (config.channel[track >> 1] >> (4U * (track & 1U))) & 15U; }
 FM1_AUDIO_CODE unsigned groove_midi_mode(unsigned track)
-{ return (config.mode[track >> 2] >> (2U * (track & 3U))) & 3U; }
+{
+    /* LUSH-owned tracks are MIDI-only to the engine: it stays silent and
+     * hands every sequenced note to groove_midi_note below. */
+    if (lush_owns(track)) return 2;
+    return (config.mode[track >> 2] >> (2U * (track & 3U))) & 3U;
+}
 void groove_midi_defaults(struct groove_midi_config *c)
 {
     static const uint8_t channels[4] = {0x10, 0x32, 0x54, 0x96};
@@ -122,12 +128,13 @@ static FM1_AUDIO_CODE void enqueue(unsigned lane, unsigned owner, unsigned ports
 }
 FM1_AUDIO_CODE void groove_midi_note(unsigned track, unsigned note, unsigned velocity)
 {
+    if (lush_owns(track)) { lush_note(track, note, velocity); return; }
     if (!groove_midi_mode(track)) return;
     unsigned ch = (config.channel[track >> 1] >> (4U * (track & 1U))) & 15U;
     enqueue(track & 1U, track, config.flags & 7U, (velocity ? 0x90U : 0x80U) | ch, note, velocity);
 }
 FM1_AUDIO_CODE void groove_midi_track_reset(unsigned track)
-{ enqueue(track & 1U, track, config.flags & 7U, 0xf6, 0, 0); }
+{ lush_track_reset(track); enqueue(track & 1U, track, config.flags & 7U, 0xf6, 0, 0); }
 FM1_AUDIO_CODE void groove_midi_transport(unsigned owner, uint8_t status)
 {
     if (owner || !(config.flags & CLOCK_OUT) || groove_clock_mode()) return;

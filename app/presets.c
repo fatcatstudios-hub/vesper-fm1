@@ -3,6 +3,7 @@
 #include "fm_patch.h"
 #include "drum808.h"
 #include "sampledrum.h"
+#include "lush.h"
 #include <string.h>
 
 /* WORSHIP firmware scenes (Fat Cat Studios fork of FM1 Open).
@@ -24,37 +25,46 @@ struct scene {
     uint8_t bpm, root, decay, feedback, fx_level;
     struct part part[LAYERS];
     uint8_t pattern[LAYERS];
+    uint8_t lush[LAYERS]; /* LUSH patch per layer; LUSH_NONE keeps the FM1 engine */
 };
-/* sends: reverb 0..15 + 16 * delay 0..15 */
-#define FM(tone, role, level, rev, dly) {GROOVE_DX7, role, tone, level, rev + 16*dly}
-#define PL(tone, role, level, rev, dly) {GROOVE_PLUCK, role, tone, level, rev + 16*dly}
+/* sends: reverb 0..15 + 16 * delay 0..15. LUSH layers park a silent PSG in
+ * the engine; the LUSH engine plays their notes. */
+#define LU(role, level, rev, dly) {GROOVE_PSG, role, 0, level, rev + 16*dly}
 #define DR(level) {GROOVE_808, BEAT, 0, level, 0}
 /* Pattern ids: ARP/LEAD use arp_patterns, BASS uses bass_patterns,
  * BEAT uses beat_patterns; PAD ignores it (sustained open chord). */
 enum { A_8THS, A_ROLL16, A_DOTTED, A_BELLS, A_UPDOWN, A_SPARSE, A_PULSE16, A_PAIRS };
 enum { B_DRONE, B_PULSE8, B_QUARTER, B_HEART };
 enum { D_HEART, D_FLOOR, D_HALF };
+#define PAD_ LUSH_AIR_PAD
+#define STR_ LUSH_STRINGS
+#define GLS_ LUSH_GLASS_PLUCK
+#define HRP_ LUSH_HARP
+#define FLT_ LUSH_FELT
+#define WBS_ LUSH_WARM_BASS
+#define SUB_ LUSH_SUB
+#define BEL_ LUSH_AIR_BELL
+#define FM1_ LUSH_NONE
 /* Roots are pitch classes (C=0). Tempos sit in the usual worship range. */
 static const struct scene scenes[GROOVE_FACTORY_PROJECTS] = {
-    {"DOTTED 8TH",  72, 4,110,58,88, {FM(WARM_PAD,PAD,78,13,0), FM(SOFT_EP,ARP,92,8,11), FM(SUB_BASS,BASS,84,2,0), FM(BELL,LEAD,58,13,9)},   {0,A_8THS,B_DRONE,A_SPARSE}},
-    {"OPEN HEAVEN", 68, 7,115,52,90, {FM(STRINGS,PAD,76,14,0), FM(BELL,ARP,70,12,9), FM(SUB_BASS,BASS,82,2,0), PL(1,ARP,74,11,10)},      {0,A_BELLS,B_DRONE,A_DOTTED}},
-    {"RISING TIDE", 76, 2,104,46,84, {FM(WARM_PAD,PAD,76,12,0), FM(SOFT_EP,ARP,84,7,8), FM(ROUND_BASS,BASS,84,1,0), DR(68)},           {0,A_ROLL16,B_PULSE8,D_HEART}},
-    {"STILL WATER", 64, 9,118,56,92, {FM(WARM_PAD,PAD,80,15,0), FM(VIBES,ARP,74,11,9), FM(SUB_BASS,BASS,80,2,0), FM(BELL,LEAD,54,14,10)}, {0,A_UPDOWN,B_DRONE,A_SPARSE}},
-    {"PULSE KEYS",  80,11,100,44,82, {FM(STRINGS,PAD,74,12,0), FM(SOFT_EP,ARP,86,6,8), FM(ROUND_BASS,BASS,86,1,0), DR(66)},            {0,A_PULSE16,B_PULSE8,D_FLOOR}},
-    {"MORNING",     70, 0,108,54,88, {FM(WARM_PAD,PAD,78,13,0), PL(0,ARP,86,9,11), FM(SUB_BASS,BASS,82,2,0), FM(VIBES,LEAD,62,12,8)},  {0,A_8THS,B_DRONE,A_BELLS}},
-    {"SANCTUARY",   66, 5,116,50,90, {FM(ORGAN,PAD,64,14,0), FM(BELL,ARP,68,12,10), FM(SUB_BASS,BASS,80,2,0), FM(STRINGS,PAD,58,14,0)}, {0,A_DOTTED,B_DRONE,0}},
-    {"HEARTBEAT",   74, 4,106,48,86, {FM(WARM_PAD,PAD,76,12,0), FM(SOFT_EP,ARP,84,8,9), FM(ROUND_BASS,BASS,86,1,0), DR(70)},           {0,A_PAIRS,B_HEART,D_HEART}},
-    {"GLORY BUILD", 84, 7, 98,42,80, {FM(STRINGS,PAD,74,11,0), FM(ELECTRIC,ARP,82,6,8), FM(ROUND_BASS,BASS,88,1,0), DR(72)},           {0,A_ROLL16,B_PULSE8,D_FLOOR}},
-    {"WIDE OPEN",   72, 2,112,54,88, {FM(WARM_PAD,PAD,78,13,0), PL(1,ARP,82,10,10), FM(SUB_BASS,BASS,82,2,0), FM(BELL,LEAD,60,13,9)},  {0,A_UPDOWN,B_DRONE,A_BELLS}},
-    {"ANTHEM 8THS", 88, 9, 96,40,80, {FM(STRINGS,PAD,72,11,0), FM(GUITAR,ARP,80,6,9), FM(ROUND_BASS,BASS,88,1,0), DR(72)},             {0,A_PULSE16,B_PULSE8,D_FLOOR}},
-    {"QUIET PLACE", 60,10,120,56,92, {FM(WARM_PAD,PAD,82,15,0), FM(VIBES,ARP,70,12,10), FM(SUB_BASS,BASS,78,2,0), FM(SOFT_EP,LEAD,64,12,8)}, {0,A_SPARSE,B_DRONE,A_BELLS}},
-    {"CASCADE",     76, 0,108,50,86, {FM(STRINGS,PAD,74,13,0), FM(BELL,ARP,70,10,9), FM(SUB_BASS,BASS,82,2,0), PL(0,ARP,72,10,10)},     {0,A_ROLL16,B_QUARTER,A_DOTTED}},
-    {"SPIRIT MOVE", 78,11,104,48,84, {FM(WARM_PAD,PAD,76,12,0), FM(SOFT_EP,ARP,84,8,11), FM(ROUND_BASS,BASS,86,1,0), DR(66)},          {0,A_DOTTED,B_HEART,D_HALF}},
-    {"ALTAR CALL",  62, 4,118,54,92, {FM(ORGAN,PAD,62,15,0), FM(VIBES,ARP,72,11,9), FM(SUB_BASS,BASS,80,2,0), FM(BELL,LEAD,56,14,10)},   {0,A_UPDOWN,B_DRONE,A_SPARSE}},
-    {"FOREVER",     70, 8,110,52,88, {FM(STRINGS,PAD,76,13,0), FM(ELECTRIC,ARP,82,8,10), FM(SUB_BASS,BASS,82,2,0), FM(BELL,LEAD,58,13,9)}, {0,A_8THS,B_DRONE,A_BELLS}}
+    {"DOTTED 8TH",  72, 4,110,58,88, {LU(PAD,100,12,0), LU(ARP,104,8,11), LU(BASS,96,2,0), LU(LEAD,88,13,9)},  {0,A_8THS,B_DRONE,A_SPARSE},   {PAD_,GLS_,SUB_,BEL_}},
+    {"OPEN HEAVEN", 68, 7,115,52,90, {LU(PAD,100,13,0), LU(ARP,92,12,9), LU(BASS,94,2,0), LU(ARP,96,11,10)},   {0,A_BELLS,B_DRONE,A_DOTTED},  {STR_,BEL_,SUB_,HRP_}},
+    {"RISING TIDE", 76, 2,104,46,84, {LU(PAD,98,12,0), LU(ARP,102,7,8), LU(BASS,100,1,0), DR(68)},            {0,A_ROLL16,B_PULSE8,D_HEART}, {PAD_,GLS_,WBS_,FM1_}},
+    {"STILL WATER", 64, 9,118,56,92, {LU(PAD,102,14,0), LU(ARP,100,11,9), LU(BASS,94,2,0), LU(LEAD,86,14,10)}, {0,A_UPDOWN,B_DRONE,A_SPARSE}, {PAD_,FLT_,SUB_,BEL_}},
+    {"PULSE KEYS",  80,11,100,44,82, {LU(PAD,96,12,0), LU(ARP,100,6,8), LU(BASS,100,1,0), DR(66)},            {0,A_PULSE16,B_PULSE8,D_FLOOR},{STR_,GLS_,WBS_,FM1_}},
+    {"MORNING",     70, 0,108,54,88, {LU(PAD,100,13,0), LU(ARP,98,9,11), LU(BASS,94,2,0), LU(LEAD,92,12,8)},  {0,A_8THS,B_DRONE,A_BELLS},    {PAD_,HRP_,SUB_,FLT_}},
+    {"SANCTUARY",   66, 5,116,50,90, {LU(PAD,98,14,0), LU(ARP,90,12,10), LU(BASS,92,2,0), LU(PAD,84,14,0)},    {0,A_DOTTED,B_DRONE,0},        {STR_,BEL_,SUB_,PAD_}},
+    {"HEARTBEAT",   74, 4,106,48,86, {LU(PAD,98,12,0), LU(ARP,100,8,9), LU(BASS,100,1,0), DR(70)},            {0,A_PAIRS,B_HEART,D_HEART},   {PAD_,FLT_,WBS_,FM1_}},
+    {"GLORY BUILD", 84, 7, 98,42,80, {LU(PAD,98,11,0), LU(ARP,100,6,8), LU(BASS,102,1,0), DR(72)},            {0,A_ROLL16,B_PULSE8,D_FLOOR}, {STR_,GLS_,WBS_,FM1_}},
+    {"WIDE OPEN",   72, 2,112,54,88, {LU(PAD,100,13,0), LU(ARP,98,10,10), LU(BASS,94,2,0), LU(LEAD,88,13,9)}, {0,A_UPDOWN,B_DRONE,A_BELLS},  {PAD_,HRP_,SUB_,BEL_}},
+    {"ANTHEM 8THS", 88, 9, 96,40,80, {LU(PAD,96,11,0), LU(ARP,100,6,9), LU(BASS,102,1,0), DR(72)},            {0,A_PULSE16,B_PULSE8,D_FLOOR},{STR_,GLS_,WBS_,FM1_}},
+    {"QUIET PLACE", 60,10,120,56,92, {LU(PAD,104,15,0), LU(ARP,96,12,10), LU(BASS,92,2,0), LU(LEAD,86,12,8)}, {0,A_SPARSE,B_DRONE,A_BELLS},  {PAD_,FLT_,SUB_,BEL_}},
+    {"CASCADE",     76, 0,108,50,86, {LU(PAD,98,13,0), LU(ARP,96,10,9), LU(BASS,94,2,0), LU(ARP,92,10,10)},   {0,A_ROLL16,B_QUARTER,A_DOTTED},{STR_,HRP_,SUB_,GLS_}},
+    {"SPIRIT MOVE", 78,11,104,48,84, {LU(PAD,98,12,0), LU(ARP,100,8,11), LU(BASS,100,1,0), DR(66)},           {0,A_DOTTED,B_HEART,D_HALF},   {PAD_,GLS_,WBS_,FM1_}},
+    {"ALTAR CALL",  62, 4,118,54,92, {LU(PAD,100,15,0), LU(ARP,98,11,9), LU(BASS,92,2,0), LU(LEAD,86,14,10)}, {0,A_UPDOWN,B_DRONE,A_SPARSE}, {STR_,FLT_,SUB_,BEL_}},
+    {"FOREVER",     70, 8,110,52,88, {LU(PAD,100,13,0), LU(ARP,98,8,10), LU(BASS,94,2,0), LU(LEAD,88,13,9)},  {0,A_8THS,B_DRONE,A_BELLS},    {PAD_,HRP_,SUB_,BEL_}}
 };
-#undef FM
-#undef PL
+#undef LU
 #undef DR
 static FM1_DSP_DATA const char fm_names[FM1_FM_FACTORY_PROGRAMS][11] = {
     "NEON KEYS ","ORBIT BELL","SOFT ORGAN","ROUND BASS","WARM AIR  ","WOOD REED ",
@@ -240,7 +250,7 @@ static void layer_cells(const struct scene *s, unsigned layer, unsigned root, un
             if (n.drums) n.velocity = (uint8_t)clamp_velocity(((n.drums & 1U) ? 96 : 46) + human[i] / 2);
         } else if (v->role == PAD) {
             if (i == 0) {
-                n.note = (uint8_t)register_base(43, root);
+                n.note = (uint8_t)register_base(48, root);
                 n.velocity = 92;
                 n.drums = (uint16_t)((PAD_CHORD_SLOT + quality + 1U) | (15U << 5) | (1U << 12));
             }
@@ -359,4 +369,23 @@ int worship_keys(uint32_t keys, uint32_t pressed, int octave)
     char *out = follow.label;
     strcpy(out, "CHORD  "); strcat(out, roots[root]); strcat(out, " "); strcat(out, kinds[quality]);
     return 1;
+}
+
+/* Control-task poll: keep the LUSH engine in step with the loaded scene, the
+ * track volumes and sends, and the FX page (decay, delay time, feedback, level). */
+void worship_poll(void)
+{
+    int scene = active_scene();
+    for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
+        unsigned patch = scene >= 0 && t < LAYERS ? scenes[scene].lush[t] : LUSH_NONE;
+        if (patch == LUSH_NONE) { lush_layer(t, LUSH_NONE, 0, 0, 0); continue; }
+        struct groove_view view;
+        uint8_t sends[2];
+        groove_get_view(t, 0, &view);
+        groove_sends_get(t, sends);
+        lush_layer(t, patch, view.volume, sends[0], sends[1]);
+    }
+    uint8_t fx[4];
+    groove_effects_get(fx);
+    lush_effects(fx, groove_delay_ticks());
 }

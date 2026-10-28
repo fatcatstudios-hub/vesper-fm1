@@ -2,6 +2,7 @@
 #include "audio_output.h"
 #include "fm1_engine_control.h"
 #include "fm1_audio_io.h"
+#include "lush.h"
 
 static unsigned output_gain;
 static int32_t usb_pcm[FM1_BLOCK_WORDS] __attribute__((aligned(32)));
@@ -19,6 +20,7 @@ static inline __attribute__((always_inline)) int32_t limit(int64_t value)
 FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
 {
     if (!output) return;
+    lush_render(output); /* WORSHIP: analog/string voices for LUSH tracks */
     unsigned target = fm1_engine_output_level();
     if (target > 127U) target = 127U;
     int delta = (int)target - (int)output_gain;

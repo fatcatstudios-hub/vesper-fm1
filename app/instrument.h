@@ -238,6 +238,7 @@ int groove_factory_load(unsigned index);
  * the scene's pitched layers to the chord held on the keys. */
 int worship_keys(uint32_t keys, uint32_t pressed, int octave);
 const char *worship_chord_label(void);
+void worship_poll(void); /* control task, every tick */
 /* Bluetooth master preserves audio preference and MIDI role while disabled. */
 enum { GROOVE_RADIO_ON = 1, GROOVE_RADIO_AUDIO = 2, GROOVE_RADIO_MIDI = 4,
        GROOVE_RADIO_ALL = 7 };

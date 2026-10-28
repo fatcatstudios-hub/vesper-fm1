@@ -2571,6 +2571,7 @@ controls_done:
 
 void groove_screen_control(void)
 {
+    worship_poll();
     struct fm1_controls controls;
     fm1_controls_read(&controls);
     uint32_t now = fm1_millis(), key_down = controls.keys & ~previous_keys;
