@@ -47,7 +47,16 @@ Fork of M-VAVE's official **FM1 Open V14** (github.com/m-vave/fm1_open, GPLv3 + 
   - Every patch revoiced: 5–10 ms attacks, darker cutoffs, less resonance, more drive, softer plucked strings, bells without the octave "music box" partial.
   - Result: spectral centroid 679 Hz → 430 Hz; 2–5 kHz down 8 dB, above 5 kHz down 13 dB; low mids up about 2.5 dB.
 
-**Not started yet:** sampled instruments (true acoustic realism), shimmer/compression, simple pattern controls, an always-visible key display, and building and flashing real firmware.
+- **Sampled instruments** (Zach: "can we get some samples in there as well"):
+  - LUSH sample voice: streams the FM-1's shared sample bank (memory-mapped SEA5, decoded with the SDK's audio-safe decoder and a two-group cache, like the stock sampler) and plays it pitched across the keyboard.
+  - It picks the nearest zone by root note, read from each slot's name ("PIANO C4"), so users can load their own instruments.
+  - Each note gets a small random start offset and level change (no machine-gun repeats). Notes run through the warm filter and LUSH effects.
+  - Factory bank `docs/WORSHIP-SAMPLES.bin`: CC0 VSCO-2 CE soft upright piano (4 zones), marimba (3), glockenspiel (1, played an octave up). 14.7 s of 19.55 s. Tuned within ±3.5 cents across the range; passes the firmware's own bank validator.
+  - Used in 10 scenes (MORNING, CASCADE, HEARTBEAT, QUIET PLACE, ALTAR CALL, SANCTUARY, STAIRCASE, DOTTED 8TH, ROLLING 3S, GALLOP). In MORNING the samples carry about 40% of the mix energy.
+  - Credits: `docs/SAMPLE-CREDITS.md`.
+  - **To load on hardware:** write `WORSHIP-SAMPLES.bin` to the device with the workbench's sample bank restore. Back up the current bank first, since this replaces M-VAVE's factory drum samples (the worship scenes use the 808 engine for drums).
+
+**Not started yet:** shimmer/compression, simple pattern controls, an always-visible key display, and building and flashing real firmware.
 
 ## Architecture findings
 - **Open (ours to modify):** UI/screen, presets and projects, MIDI routing (including `groove_midi_mode` / `groove_midi_note`, which the engine calls for every sequenced note), and the final audio output stage.

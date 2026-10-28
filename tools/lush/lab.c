@@ -20,6 +20,14 @@ int main(int argc, char **argv)
     unsigned frames = (unsigned)(total * 44100 / 128) * 128;
     int32_t *pcm = calloc(frames * 2, sizeof *pcm);
     uint8_t fx[4] = {110, 135, 58, 88};
+    { /* bind the worship sample bank */
+        static uint8_t bankfile[466944];
+        FILE *b = fopen("/home/claude/fm1_open/build/samples/WORSHIP-SAMPLES.bin", "rb");
+        if (b) { size_t n = fread(bankfile, 1, sizeof bankfile, b); fclose(b); (void)n;
+            for (unsigned i = 0; i < 8; ++i) { const uint8_t *e = bankfile + 32 + i * 28;
+                unsigned off = e[0]|e[1]<<8|e[2]<<16|(unsigned)e[3]<<24, fr = e[4]|e[5]<<8|e[6]<<16|(unsigned)e[7]<<24, by = e[8]|e[9]<<8|e[10]<<16|(unsigned)e[11]<<24;
+                if (fr) lush_sample_bind(i, bankfile + off, by, fr, (const char *)e + 12); } }
+    }
     lush_layer(0, patch, 100, atoi(argv[5]), atoi(argv[6]));
     lush_effects(fx, 1000);
     lush_render(pcm);

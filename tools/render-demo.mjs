@@ -31,12 +31,12 @@ const scene = (slot, bpm, progression, barsEach) => {
   render(3);
 };
 x.sim_boot(1); render(0.5, false);
-scene(0, 72, ['E', 'C#m', 'A', 'B'], 2);       // DOTTED 8TH  - Juno arp, detune pluck 3s, detune bass, bells
-scene(1, 76, ['G', 'Em', 'C', 'D'], 2);        // ROLLING 3S  - wide detune pluck rolling 3-over-4, bells, sub, heartbeat
-scene(2, 80, ['D', 'Bm', 'G', 'A'], 2);        // STAIRCASE   - supersaw stairs, harp dotted, syncopated bass
-scene(3, 84, ['A', 'F#m', 'D', 'E'], 2);       // OCTAVE RUN  - Juno octaves, glass sync, 16th bass, four on floor
-scene(12, 78, ['D', 'Bm', 'G', 'A'], 2);       // SYNC LINES  - Juno sync, detune pluck 3s, sync bass, half-time
-scene(15, 92, ['Ab', 'Fm', 'Db', 'Eb'], 2);    // NEON SKY    - supersaw octaves, Juno cascade, 16th bass
+scene(5, 70, ['C', 'Am', 'F', 'G'], 2);        // MORNING     - sampled piano 8ths, marimba dotted rise, sub, quiet pad
+scene(9, 76, ['D', 'Bm', 'G', 'A'], 2);        // CASCADE     - marimba cascade, glass pluck, sub, glockenspiel
+scene(7, 74, ['E', 'C#m', 'A', 'B'], 2);       // HEARTBEAT   - piano pairs, detune pluck, warm bass, kick
+scene(2, 80, ['G', 'Em', 'C', 'D'], 2);        // STAIRCASE   - supersaw stairs, marimba dotted, sync bass
+scene(11, 60, ['A', 'F#m', 'D', 'E'], 2);      // QUIET PLACE - pad, sparse piano, sub, glock dotted rise
+scene(14, 62, ['E', 'C#m', 'A', 'B'], 2);      // ALTAR CALL  - strings, piano up-down, sub, glock
 
 let peak = 0; for (const b of out) for (const v of b) peak = Math.max(peak, Math.abs(v));
 const gain = peak > 0 ? 0.89 / peak : 1;

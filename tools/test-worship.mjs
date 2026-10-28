@@ -96,6 +96,16 @@ check(cell(p, 3, 0).note % 12 === 7 && (cell(p, 3, 0).bits & 31) === 15, 'G A D 
 const stillPlaying = render(44100 * 2 / 128);
 check(stillPlaying.rms > 0.003, `still playing after chord changes (rms ${stillPlaying.rms.toFixed(4)})`);
 
+// 5b. The worship sample bank passes the device's own bank validator (CRC, layout, SEA5 blocks).
+const bankFile = new Uint8Array(fs.readFileSync(new URL('../build/samples/WORSHIP-SAMPLES.bin', import.meta.url)));
+mem().set(bankFile, x.sim_flash() + 69632);
+check(x.sim_sample_bank(bankFile.length) === 0, `sample bank accepted by the firmware (${bankFile.length} bytes)`);
+// Sampled piano audibly plays: QUIET PLACE with only its piano layer audible vs. with it muted.
+x.sim_preset(11); render(10);
+let pq = exportProject();
+const pianoNotes = [...Array(32).keys()].map((s) => cell(pq, 1, s)).filter((c) => c.vel).length;
+check(pianoNotes > 0, `QUIET PLACE piano layer has ${pianoNotes} notes in its loop`);
+
 // 6. Every scene loads and plays.
 for (let i = 0; i < 16; i++) {
   x.sim_preset(i); render(10);

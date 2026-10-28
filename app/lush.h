@@ -22,6 +22,9 @@ enum {
     LUSH_SUPERSAW,    /* stereo supersaw sequence voice */
     LUSH_JUNO_ARP,    /* detuned pulse pair, Juno-style arp */
     LUSH_DETUNE_BASS, /* two detuned saws, punchy sequenced bass */
+    LUSH_PIANO,       /* sampled soft upright piano (bank slots 1-4) */
+    LUSH_MARIMBA,     /* sampled marimba (slots 5-7) */
+    LUSH_GLOCK,       /* sampled glockenspiel, an octave up (slot 8) */
     LUSH_PATCHES
 };
 
@@ -31,6 +34,12 @@ void lush_layer(unsigned track, unsigned patch, unsigned volume, unsigned reverb
  * delay_ticks: applied delay time at 44.1 kHz / 8 (groove_delay_ticks()). */
 void lush_effects(const uint8_t fx[4], unsigned delay_ticks);
 const char *lush_patch_name(unsigned patch);
+
+/* Control task, from the sample bank loader: bind one of the eight shared
+ * sample slots (memory-mapped SEA5 data, 32 kHz). NULL data unbinds; voices
+ * playing that slot stop at their next decode. The zone's root note is read
+ * from the end of its name ("PIANO C4"); without one it is C4. */
+void lush_sample_bind(unsigned slot, const uint8_t *data, unsigned bytes, unsigned frames, const char *name);
 
 /* Audio context. */
 unsigned lush_owns(unsigned track);

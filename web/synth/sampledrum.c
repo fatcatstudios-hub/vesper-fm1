@@ -17,9 +17,12 @@ static char sample_short_names[SAMPLE_DRUM_PADS][6];
 #include "sample_metadata.inc"
 #include "sea_encode.h"
 #include "demo_bank.h"
+#include "worship_bank.inc"
+/* WORSHIP: the preview's factory bank is the worship sample set. */
 const uint8_t *sampledrum_factory(unsigned *bytes)
 {
-    return demo_bank(bytes);
+    if (bytes) *bytes = sizeof worship_bank;
+    return worship_bank;
 }
 uint8_t *sampledrum_encode(const int16_t *pcm, unsigned frames, unsigned *bytes)
 {

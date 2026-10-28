@@ -4,6 +4,7 @@
 #include "instrument.h"
 #include "sampledrum.h"
 #include "fm_patch.h"
+#include "lush.h"
 #include <string.h>
 
 /* Single bank, no hidden second copy. CRC and a last-written commit word make
@@ -41,8 +42,10 @@ static void unbind(void)
 {
     fm1_engine_pause();
     groove_samples_stop();
-    for (unsigned i = 0; i < SAMPLE_DRUM_PADS; ++i)
+    for (unsigned i = 0; i < SAMPLE_DRUM_PADS; ++i) {
         (void)sampledrum_bind(i, NULL, 0, 0, NULL);
+        lush_sample_bind(i, NULL, 0, 0, NULL); /* before the bank can be rewritten */
+    }
     fm1_engine_resume();
 }
 static int valid(void)
@@ -89,6 +92,7 @@ static int bind(void)
         const struct sample_entry *s = &header.entry[i];
         (void)sampledrum_bind(i, s->frames ? mapped + s->offset : NULL, s->bytes, s->frames,
                               s->name);
+        lush_sample_bind(i, s->frames ? mapped + s->offset : NULL, s->bytes, s->frames, s->name);
     }
     fm1_engine_resume();
     state = 2;
