@@ -2526,6 +2526,14 @@ controls_done:
             keys &= ~(1U << edit_keys[i]);
     if (page == TONE_EDIT && groove_source_type(track) == GROOVE_303)
         keys &= ~((1U << edit_keys[8]) | (1U << edit_keys[9]));
+    /* WORSHIP: on HOME the keys pick the chord the scene follows. */
+    if (page == OVERVIEW && !mode && !glo_down) {
+        int followed = worship_keys(keys, key_down, octave);
+        if (followed >= 0) {
+            if (followed) { notice = worship_chord_label(); notice_until = now + 2500U; }
+            keys = 0;
+        }
+    }
     if (page == STEPS && !writing && !glo_down) {
         struct groove_view view = {0};
         groove_get_view(track, cursor, &view);

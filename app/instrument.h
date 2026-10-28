@@ -233,6 +233,11 @@ enum { GROOVE_FACTORY_PROJECTS = 16 };
 const char *groove_factory_name(unsigned index);
 int groove_factory_build(unsigned index, struct groove_project *project);
 int groove_factory_load(unsigned index);
+/* WORSHIP chord follow (control task only). Returns -1 when the loaded project
+ * is not a worship scene, 0 when the chord is unchanged, 1 after re-pitching
+ * the scene's pitched layers to the chord held on the keys. */
+int worship_keys(uint32_t keys, uint32_t pressed, int octave);
+const char *worship_chord_label(void);
 /* Bluetooth master preserves audio preference and MIDI role while disabled. */
 enum { GROOVE_RADIO_ON = 1, GROOVE_RADIO_AUDIO = 2, GROOVE_RADIO_MIDI = 4,
        GROOVE_RADIO_ALL = 7 };

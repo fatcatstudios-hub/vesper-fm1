@@ -5,11 +5,12 @@
 #include "sampledrum.h"
 #include <string.h>
 
-/* FM1 arrangements. Small musical recipes expand into the normal
- * editable project format, avoiding sixteen 4 KiB images in program Flash.
- * No random generation, engine allocation or live-state changes happen here.
- * Notes are MIDI pitches; masks read from bit 0 (the first sixteenth note).
- * Unused tracks stay empty, muted, and use the small PSG engine. */
+/* WORSHIP firmware scenes (Fat Cat Studios fork of FM1 Open).
+ * Sixteen ambient worship/CCM scenes, each four layers: PAD, ARP, BASS and
+ * a fourth layer (soft beat or sparse bell). Patterns are written as chord
+ * DEGREES, not pitches, so CHORD FOLLOW can re-pitch every layer to whatever
+ * chord is held on the keys (major, minor, sus2, sus4). Recipes expand into
+ * the normal editable project format; no engine state is touched here. */
 enum { KEYS, BASS, ARP, LEAD, PAD, BEAT, PERC, STAB };
 enum { ELECTRIC, BELL, ORGAN, ROUND_BASS, WARM_PAD, REED,
        SOFT_EP, CLAV, GUITAR, MARIMBA, VIBES, BRASS, STRINGS, SUB_BASS, METAL, SOFT_LEAD };
@@ -17,76 +18,44 @@ struct part {
     uint8_t source : 3, role : 3;
     uint8_t tone, level, sends;
 };
+enum { LAYERS = 4 };
 struct scene {
     char name[13];
-    uint8_t bpm, root, minor, swing, rhythm, motif, count;
-    uint8_t decay, delay_steps, feedback, fx_level;
-    struct part part[5];
+    uint8_t bpm, root, decay, feedback, fx_level;
+    struct part part[LAYERS];
+    uint8_t pattern[LAYERS];
 };
+/* sends: reverb 0..15 + 16 * delay 0..15 */
 #define FM(tone, role, level, rev, dly) {GROOVE_DX7, role, tone, level, rev + 16*dly}
-#define AC(tone, role, level, rev, dly) {GROOVE_303, role, tone, level, rev + 16*dly}
-#define PS(tone, role, level, rev, dly) {GROOVE_PSG, role, tone, level, rev + 16*dly}
 #define PL(tone, role, level, rev, dly) {GROOVE_PLUCK, role, tone, level, rev + 16*dly}
 #define DR(level) {GROOVE_808, BEAT, 0, level, 0}
-#define SA(role, level) {GROOVE_SAMPLE, role, 0, level, 1}
-/* Sixteen genre sketches. Sends are intentional per part: bass stays
- * dry, keys get a small room, sparse leads and arps get tempo-related echoes.
- * delay_steps counts sixteenths at the scene's initial tempo. */
+/* Pattern ids: ARP/LEAD use arp_patterns, BASS uses bass_patterns,
+ * BEAT uses beat_patterns; PAD ignores it (sustained open chord). */
+enum { A_8THS, A_ROLL16, A_DOTTED, A_BELLS, A_UPDOWN, A_SPARSE, A_PULSE16, A_PAIRS };
+enum { B_DRONE, B_PULSE8, B_QUARTER, B_HEART };
+enum { D_HEART, D_FLOOR, D_HALF };
+/* Roots are pitch classes (C=0). Tempos sit in the usual worship range. */
 static const struct scene scenes[GROOVE_FACTORY_PROJECTS] = {
-    {"NEON KEYS",   104,45,1, 8,0,0,4, 64,2,34,76, {FM(ELECTRIC,KEYS,96,4,1), FM(ROUND_BASS,BASS,92,0,0), PL(0,ARP,76,3,3), SA(BEAT,82)}},
-    {"ACID ALLEY",  130,38,1, 0,1,1,3, 38,2,42,68, {AC(1,BASS,42,0,1), DR(86), FM(SOFT_LEAD,LEAD,77,2,4)}},
-    {"VELVET DUSK",  82,41,1,18,2,2,4, 72,1,28,78, {FM(SOFT_EP,KEYS,102,5,0), FM(SUB_BASS,BASS,92,0,0), SA(BEAT,76), FM(VIBES,LEAD,76,4,3)}},
-    {"GLASS TIDE",   72,38,0, 0,0,3,3, 98,1,52,94, {FM(BELL,LEAD,94,7,5), PL(1,ARP,85,7,4), FM(WARM_PAD,PAD,89,7,0)}},
-    {"CHIP PARADE", 142,36,0, 0,3,4,4, 40,2,24,66, {PS(0,LEAD,64,2,2), PS(1,BASS,80,0,0), DR(76), FM(MARIMBA,ARP,76,2,1)}},
-    {"WOODLAND",     96,43,0, 5,4,5,4, 68,1,30,82, {PL(0,KEYS,105,5,1), FM(REED,LEAD,90,5,2), SA(PERC,68), FM(ROUND_BASS,BASS,87,0,0)}},
-    {"NIGHT DRIVE", 116,36,1, 0,1,0,4, 70,2,38,76, {FM(ROUND_BASS,BASS,96,0,0), FM(STRINGS,PAD,75,5,0), AC(2,ARP,28,2,3), DR(84)}},
-    {"DUB HARBOUR",  76,38,1,10,5,2,4, 74,1,70,84, {FM(SUB_BASS,BASS,99,0,0), FM(ORGAN,STAB,84,4,6), DR(82), PL(1,LEAD,74,3,5)}},
-    {"METRO FUNK",  112,40,1,12,6,5,4, 42,1,24,68, {FM(CLAV,STAB,97,2,0), AC(0,BASS,37,0,0), SA(BEAT,83), FM(BRASS,LEAD,73,3,1)}},
-    {"ORBIT BELLS",  92,45,1, 0,3,3,4, 86,2,48,78, {FM(BELL,LEAD,83,5,4), FM(MARIMBA,ARP,68,3,2), FM(SUB_BASS,BASS,82,0,0), DR(72)}},
-    {"DESERT STEP", 108,38,1, 8,7,1,4, 62,2,35,76, {PL(2,LEAD,87,4,3), AC(3,BASS,37,0,0), DR(79), FM(REED,PAD,60,4,0)}},
-    {"SOFT CURRENT",88,41,0,10,2,2,4, 62,1,27,76, {FM(SOFT_EP,KEYS,103,4,0), FM(ROUND_BASS,BASS,86,0,0), SA(PERC,65), FM(GUITAR,LEAD,81,3,2)}},
-    {"BROKEN GRID", 134,36,1, 6,6,4,4, 46,2,42,70, {AC(2,BASS,38,0,1), FM(ORGAN,STAB,78,2,3), SA(BEAT,82), FM(METAL,LEAD,65,3,4)}},
-    {"SUNRISE POP", 122,43,0, 0,0,5,5, 68,2,32,76, {FM(WARM_PAD,PAD,72,5,0), FM(ROUND_BASS,BASS,91,0,0), PL(0,ARP,75,3,3), SA(BEAT,84), FM(SOFT_LEAD,LEAD,82,3,2)}},
-    {"MINIMAL ROOM",124,45,1, 4,1,1,3, 46,2,45,72, {AC(1,BASS,39,0,1), DR(89), FM(CLAV,STAB,70,2,4)}},
-    {"AFTERGLOW",    68,36,0, 0,0,3,2, 90,1,42,80, {FM(SOFT_EP,KEYS,108,5,1), FM(VIBES,LEAD,90,6,3)}}
+    {"DOTTED 8TH",  72, 4,110,58,88, {FM(WARM_PAD,PAD,78,13,0), FM(SOFT_EP,ARP,92,8,11), FM(SUB_BASS,BASS,84,2,0), FM(BELL,LEAD,58,13,9)},   {0,A_8THS,B_DRONE,A_SPARSE}},
+    {"OPEN HEAVEN", 68, 7,115,52,90, {FM(STRINGS,PAD,76,14,0), FM(BELL,ARP,70,12,9), FM(SUB_BASS,BASS,82,2,0), PL(1,ARP,74,11,10)},      {0,A_BELLS,B_DRONE,A_DOTTED}},
+    {"RISING TIDE", 76, 2,104,46,84, {FM(WARM_PAD,PAD,76,12,0), FM(SOFT_EP,ARP,84,7,8), FM(ROUND_BASS,BASS,84,1,0), DR(68)},           {0,A_ROLL16,B_PULSE8,D_HEART}},
+    {"STILL WATER", 64, 9,118,56,92, {FM(WARM_PAD,PAD,80,15,0), FM(VIBES,ARP,74,11,9), FM(SUB_BASS,BASS,80,2,0), FM(BELL,LEAD,54,14,10)}, {0,A_UPDOWN,B_DRONE,A_SPARSE}},
+    {"PULSE KEYS",  80,11,100,44,82, {FM(STRINGS,PAD,74,12,0), FM(SOFT_EP,ARP,86,6,8), FM(ROUND_BASS,BASS,86,1,0), DR(66)},            {0,A_PULSE16,B_PULSE8,D_FLOOR}},
+    {"MORNING",     70, 0,108,54,88, {FM(WARM_PAD,PAD,78,13,0), PL(0,ARP,86,9,11), FM(SUB_BASS,BASS,82,2,0), FM(VIBES,LEAD,62,12,8)},  {0,A_8THS,B_DRONE,A_BELLS}},
+    {"SANCTUARY",   66, 5,116,50,90, {FM(ORGAN,PAD,64,14,0), FM(BELL,ARP,68,12,10), FM(SUB_BASS,BASS,80,2,0), FM(STRINGS,PAD,58,14,0)}, {0,A_DOTTED,B_DRONE,0}},
+    {"HEARTBEAT",   74, 4,106,48,86, {FM(WARM_PAD,PAD,76,12,0), FM(SOFT_EP,ARP,84,8,9), FM(ROUND_BASS,BASS,86,1,0), DR(70)},           {0,A_PAIRS,B_HEART,D_HEART}},
+    {"GLORY BUILD", 84, 7, 98,42,80, {FM(STRINGS,PAD,74,11,0), FM(ELECTRIC,ARP,82,6,8), FM(ROUND_BASS,BASS,88,1,0), DR(72)},           {0,A_ROLL16,B_PULSE8,D_FLOOR}},
+    {"WIDE OPEN",   72, 2,112,54,88, {FM(WARM_PAD,PAD,78,13,0), PL(1,ARP,82,10,10), FM(SUB_BASS,BASS,82,2,0), FM(BELL,LEAD,60,13,9)},  {0,A_UPDOWN,B_DRONE,A_BELLS}},
+    {"ANTHEM 8THS", 88, 9, 96,40,80, {FM(STRINGS,PAD,72,11,0), FM(GUITAR,ARP,80,6,9), FM(ROUND_BASS,BASS,88,1,0), DR(72)},             {0,A_PULSE16,B_PULSE8,D_FLOOR}},
+    {"QUIET PLACE", 60,10,120,56,92, {FM(WARM_PAD,PAD,82,15,0), FM(VIBES,ARP,70,12,10), FM(SUB_BASS,BASS,78,2,0), FM(SOFT_EP,LEAD,64,12,8)}, {0,A_SPARSE,B_DRONE,A_BELLS}},
+    {"CASCADE",     76, 0,108,50,86, {FM(STRINGS,PAD,74,13,0), FM(BELL,ARP,70,10,9), FM(SUB_BASS,BASS,82,2,0), PL(0,ARP,72,10,10)},     {0,A_ROLL16,B_QUARTER,A_DOTTED}},
+    {"SPIRIT MOVE", 78,11,104,48,84, {FM(WARM_PAD,PAD,76,12,0), FM(SOFT_EP,ARP,84,8,11), FM(ROUND_BASS,BASS,86,1,0), DR(66)},          {0,A_DOTTED,B_HEART,D_HALF}},
+    {"ALTAR CALL",  62, 4,118,54,92, {FM(ORGAN,PAD,62,15,0), FM(VIBES,ARP,72,11,9), FM(SUB_BASS,BASS,80,2,0), FM(BELL,LEAD,56,14,10)},   {0,A_UPDOWN,B_DRONE,A_SPARSE}},
+    {"FOREVER",     70, 8,110,52,88, {FM(STRINGS,PAD,76,13,0), FM(ELECTRIC,ARP,82,8,10), FM(SUB_BASS,BASS,82,2,0), FM(BELL,LEAD,58,13,9)}, {0,A_8THS,B_DRONE,A_BELLS}}
 };
 #undef FM
-#undef AC
-#undef PS
 #undef PL
 #undef DR
-#undef SA
-
-/* Kick, backbeat, closed hat, open hat and a small percussion response. */
-static const uint16_t beats[8][5] = {
-    {0x0101,0x1010,0x5555,0x4000,0x0080},
-    {0x1111,0x1010,0x4444,0x0400,0x8000},
-    {0x0401,0x1010,0x4545,0x0000,0x8000},
-    {0x0141,0x1010,0x5555,0x4000,0x0080},
-    {0x0101,0x1010,0x0505,0x0000,0x4400},
-    {0x0100,0x0100,0x5555,0x0000,0x4080},
-    {0x0841,0x1010,0x5555,0x4000,0x0080},
-    {0x0409,0x1010,0x4545,0x0400,0x2080}
-};
-static const uint16_t bass_masks[6] = {0x1525,0x6d6b,0x0501,0x1101,0x5555,0x4929};
-static const int8_t melodies[6][16] = {
-    {0,-1,2,-1,4,-1,2,1, 0,-1,4,-1,5,4,2,-1},
-    {0,0,-1,4,0,-1,2,0, 5,-1,4,2,-1,0,2,-1},
-    {-1,-1,2,-1,4,-1,-1,2, -1,1,-1,-1,0,-1,-1,-1},
-    {4,-1,-1,-1,2,-1,1,-1, 0,-1,-1,2,5,-1,-1,-1},
-    {0,2,4,5,4,-1,2,-1, 1,2,4,-1,5,4,2,-1},
-    {-1,0,-1,2,-1,4,2,-1, 5,-1,4,2,-1,1,0,-1}
-};
-static unsigned bar_root(const struct scene *s, unsigned bar)
-{
-    static const uint8_t progression[4][4] = {{0,7,9,5},{0,8,3,10},{0,9,2,7},{0,5,8,7}};
-    return s->root + progression[s->minor + 2*(s->motif & 1U)][bar];
-}
-static unsigned bar_minor(const struct scene *s, unsigned bar)
-{
-    static const uint8_t quality[4][4] = {{0,0,1,0},{1,0,0,0},{0,1,1,0},{1,1,0,0}};
-    return quality[s->minor + 2*(s->motif & 1U)][bar];
-}
 static FM1_DSP_DATA const char fm_names[FM1_FM_FACTORY_PROGRAMS][11] = {
     "NEON KEYS ","ORBIT BELL","SOFT ORGAN","ROUND BASS","WARM AIR  ","WOOD REED ",
     "SOFT EP   ","DRY CLAV  ","FM GUITAR ","MARIMBA   ","VIBES     ","SOFT BRASS",
@@ -208,6 +177,97 @@ static void preset(struct groove_preset *p, const struct part *v)
     }
     p->data[209] = v->sends;
 }
+
+/* ---- Worship patterns -------------------------------------------------
+ * Arp/lead degrees index the chord-tone table below; -1 is a rest.
+ * Shapes favour root/5th/9th/3rd voicings, which read as "worship" rather
+ * than the plain 1-3-5 triad climb that tends to sound cheesy. */
+static const int8_t arp_patterns[8][16] = {
+    [A_8THS]    = {0,-1,1,-1,3,-1,4,-1, 2,-1,1,-1,3,-1,4,-1},
+    [A_ROLL16]  = {0,1,3,4, 2,1,3,4, 0,1,3,4, 5,4,3,1},
+    [A_DOTTED]  = {0,-1,-1,3,-1,-1,4,-1, -1,1,-1,-1,3,-1,2,-1},
+    [A_BELLS]   = {3,-1,-1,-1,4,-1,-1,-1, 5,-1,-1,-1,4,-1,-1,-1},
+    [A_UPDOWN]  = {0,-1,1,-1,2,-1,3,-1, 4,-1,3,-1,2,-1,1,-1},
+    [A_SPARSE]  = {6,-1,-1,-1,-1,-1,4,-1, -1,-1,3,-1,-1,-1,-1,-1},
+    [A_PULSE16] = {2,2,2,2, 2,2,2,2, 2,2,2,2, 2,2,2,2},
+    [A_PAIRS]   = {3,-1,4,-1,3,-1,1,-1, 3,-1,4,-1,5,-1,4,-1},
+};
+static const uint8_t arp_gates[8] = {10, 7, 13, 15, 10, 15, 5, 9};
+/* Bass: 0 root, 1 fifth, 2 octave, -1 rest. */
+static const int8_t bass_patterns[4][16] = {
+    [B_DRONE]   = {0,-1,-1,-1,-1,-1,-1,-1, -1,-1,-1,-1,-1,-1,-1,-1},
+    [B_PULSE8]  = {0,-1,0,-1,0,-1,0,-1, 0,-1,0,-1,0,-1,0,-1},
+    [B_QUARTER] = {0,-1,-1,-1,0,-1,-1,-1, 0,-1,-1,-1,1,-1,-1,-1},
+    [B_HEART]   = {0,-1,-1,0,-1,-1,-1,-1, 0,-1,-1,0,-1,-1,-1,-1},
+};
+/* 808 kick (bit 0) and closed hat (bit 10) masks, read from the first 16th. */
+static const uint16_t beat_kick[3] = {[D_HEART] = 0x0909, [D_FLOOR] = 0x1111, [D_HALF] = 0x0401};
+static const uint16_t beat_hat[3]  = {[D_HEART] = 0x0000, [D_FLOOR] = 0x4444, [D_HALF] = 0x1111};
+/* Small fixed velocity offsets keep repeated notes from sounding machine-gunned
+ * while staying identical every loop, so the groove never wanders. */
+static const int8_t human[16] = {0,-6,3,-9,2,-4,5,-8,1,-7,4,-5,0,-3,6,-10};
+
+enum { MAJ, MIN, SUS2, SUS4, QUALITIES };
+static const uint8_t chord_tones[QUALITIES][7] = {
+    [MAJ]  = {0, 7, 12, 14, 16, 19, 24},
+    [MIN]  = {0, 7, 12, 14, 15, 19, 24},
+    [SUS2] = {0, 7, 12, 14, 19, 26, 24},
+    [SUS4] = {0, 7, 12, 14, 17, 19, 24},
+};
+/* Open pad voicings stored in custom chord slots 13..16. */
+static const uint8_t pad_chords[QUALITIES][8] = {
+    {4, 7, 14, 16}, {4, 7, 14, 15}, {4, 7, 14, 19}, {4, 7, 12, 17}
+};
+enum { PAD_CHORD_SLOT = 12 };
+
+static unsigned clamp_velocity(int v) { return v < 24 ? 24U : v > 120 ? 120U : (unsigned)v; }
+static unsigned accent(unsigned i) { return i % 4 == 0 ? 100U : i % 2 == 0 ? 86U : 72U; }
+/* Keep every layer in a comfortable register whatever the key. */
+static unsigned register_base(unsigned low, unsigned root) { return low + (root + 12U - low % 12U) % 12U; }
+
+static void layer_cells(const struct scene *s, unsigned layer, unsigned root, unsigned quality,
+                        struct groove_step cells[GROOVE_STEPS])
+{
+    const struct part *v = &s->part[layer];
+    unsigned pattern = s->pattern[layer];
+    memset(cells, 0, sizeof(struct groove_step) * GROOVE_STEPS);
+    for (unsigned i = 0; i < 16; ++i) {
+        struct groove_step n = {0, 0, 0};
+        unsigned bit = 1U << i;
+        if (v->role == BEAT) {
+            if (beat_kick[pattern] & bit) n.drums |= 1U;
+            if (beat_hat[pattern] & bit) n.drums |= 1U << 10;
+            if (n.drums) n.velocity = (uint8_t)clamp_velocity(((n.drums & 1U) ? 96 : 46) + human[i] / 2);
+        } else if (v->role == PAD) {
+            if (i == 0) {
+                n.note = (uint8_t)register_base(43, root);
+                n.velocity = 92;
+                n.drums = (uint16_t)((PAD_CHORD_SLOT + quality + 1U) | (15U << 5) | (1U << 12));
+            }
+        } else if (v->role == BASS) {
+            int d = bass_patterns[pattern][i];
+            if (d >= 0) {
+                static const uint8_t offset[3] = {0, 7, 12};
+                unsigned drone = pattern == B_DRONE;
+                n.note = (uint8_t)(register_base(40, root) + offset[d]);
+                n.velocity = (uint8_t)clamp_velocity(drone ? 96 : (int)accent(i) + human[i]);
+                n.drums = (uint16_t)(((drone ? 15U : pattern == B_PULSE8 ? 6U : 11U) << 5) | (drone << 12));
+            }
+        } else { /* ARP and LEAD */
+            int d = arp_patterns[pattern][i];
+            if (d >= 0) {
+                unsigned base = register_base(v->role == LEAD ? 67 : 55, root);
+                n.note = (uint8_t)(base + chord_tones[quality][d]);
+                int vel = (int)accent(i) + human[i];
+                if (v->role == LEAD) vel -= 14;
+                n.velocity = (uint8_t)clamp_velocity(vel);
+                n.drums = (uint16_t)(arp_gates[pattern] << 5);
+            }
+        }
+        for (unsigned bar = 0; bar < 4; ++bar) cells[bar * 16 + i] = n;
+    }
+}
+
 const char *groove_factory_name(unsigned index)
 {
     return index < GROOVE_FACTORY_PROJECTS ? scenes[index].name : NULL;
@@ -218,68 +278,85 @@ int groove_factory_build(unsigned index, struct groove_project *p)
     const struct scene *s = &scenes[index];
     memset(p, 0, sizeof *p);
     memset(p->name, ' ', sizeof p->name); memcpy(p->name, s->name, strlen(s->name));
-    p->tempo = s->bpm; p->mute = (uint8_t)(255U << s->count);
-    unsigned delay = FM1_SAMPLE_RATE * 60U * s->delay_steps / (s->bpm * 32U);
+    p->tempo = s->bpm; p->mute = (uint8_t)(255U << LAYERS);
     p->effects[0] = s->decay;
-    p->effects[1] = (uint8_t)((delay - 166U + 7U) / 14U);
+    p->effects[1] = GROOVE_DELAY_SYNC + 7U; /* tempo-synced dotted eighth */
     p->effects[2] = s->feedback; p->effects[3] = s->fx_level;
-    groove_sequence_defaults(&p->sequence); p->sequence.swing = s->swing;
-    static const uint8_t open_chords[2][8] = {{4,4,11,14},{4,3,10,14}};
-    memcpy(p->sequence.chord[12], open_chords, sizeof open_chords);
+    groove_sequence_defaults(&p->sequence);
+    memcpy(p->sequence.chord[PAD_CHORD_SLOT], pad_chords, sizeof pad_chords);
     groove_project_arp_defaults(p);
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
-        const struct part empty = {GROOVE_PSG,LEAD,0,100,0};
-        const struct part *v = t < s->count ? &s->part[t] : &empty;
+        const struct part empty = {GROOVE_PSG, LEAD, 0, 100, 0};
+        const struct part *v = t < LAYERS ? &s->part[t] : &empty;
         preset(&p->preset[t], v);
-        if (t >= s->count) continue;
-        for (unsigned bar = 0; bar < 4; ++bar) {
-            unsigned root = bar_root(s, bar), minor = bar_minor(s, bar);
-            for (unsigned i = 0; i < 16; ++i) {
-                struct groove_step *n = &p->step[t][bar * 16 + i];
-                unsigned bit = 1U << i, chord = 0, gate = 7, tie = 0, pitch = root + 24;
-                if (v->role == BEAT || v->role == PERC) {
-                    const uint16_t *b = beats[s->rhythm];
-                    unsigned sample = v->source == GROOVE_SAMPLE;
-                    if (v->role == BEAT && (b[0] & bit)) n->drums |= 1U;
-                    if (b[1] & bit) n->drums |= (uint16_t)(1U << (v->role == PERC && sample ? 2 : 1));
-                    if (b[2] & bit) n->drums |= (uint16_t)(1U << (sample ? 6 : 10));
-                    if (b[3] & bit) {
-                        n->drums &= (uint16_t)~(1U << (sample ? 6 : 10));
-                        n->drums |= (uint16_t)(1U << (sample ? 7 : 9));
-                    }
-                    if ((b[4] & bit) && (bar & 1U)) n->drums |= (uint16_t)(1U << (sample ? 2 : 5));
-                    if (bar == 3 && i == 15) n->drums |= (uint16_t)(1U << (sample ? 4 : 3));
-                    if (n->drums) n->velocity = (uint8_t)((n->drums & 3U) ? 100 : i % 4 == 0 ? 74 : 59 + (bar & 1U)*4);
-                    continue;
-                }
-                if (v->role == BASS) {
-                    if (!(bass_masks[s->motif] & bit)) continue;
-                    pitch = root + (i == 14 ? 12U : i == 7 || i == 11 ? 7U : 0U);
-                    gate = 12;
-                } else if (v->role == KEYS || v->role == PAD || v->role == STAB) {
-                    unsigned mask = v->role == STAB ? 0x0444 : v->role == KEYS ? 0x0909 : 0x0001;
-                    if (!(mask & bit)) continue;
-                    pitch = root + 12; chord = minor ? 2 : 1;
-                    if (v->role == KEYS && v->source == GROOVE_DX7) chord = 13U + minor;
-                    if (v->role == PAD) { gate = 15; tie = 1; }
-                    else if (v->role == KEYS) { gate = 12; tie = i == 0 || i == 8; }
-                    else gate = 9;
-                } else if (v->role == ARP) {
-                    if (i & 1U) continue;
-                    const unsigned offsets[4] = {0,minor ? 3U : 4U,7,12};
-                    pitch = root + 24 + offsets[(i / 2 + bar) % 4];
-                    gate = 9;
-                } else {
-                    int degree = melodies[s->motif][i];
-                    if (degree < 0) continue;
-                    static const uint8_t scale[2][7] = {{0,2,4,7,9,12,14},{0,3,5,7,10,12,15}};
-                    pitch = root + 24 + scale[minor][degree]; gate = 11;
-                }
-                n->note = (uint8_t)pitch;
-                n->velocity = (uint8_t)(i % 4 == 0 ? 100 : i % 2 == 0 ? 88 : 76);
-                n->drums = (uint16_t)(chord | (gate << 5) | (tie << 12));
-            }
-        }
+        if (t >= LAYERS) continue;
+        p->preset[t].sequence_pages = 1; /* one-bar loop: chord changes land fast */
+        layer_cells(s, t, s->root, MAJ, p->step[t]);
     }
     return groove_project_valid(p) ? 0 : GROOVE_PROJECT_INVALID;
+}
+
+/* ---- Chord follow -----------------------------------------------------
+ * Active whenever the loaded project carries a worship scene name. Holding
+ * keys sets the chord: the lowest key is the root, a minor/major third
+ * decides the quality, otherwise 2nd = sus2 and 4th = sus4. A single key
+ * changes only the root. Releases never change the chord, so it latches. */
+static struct {
+    int8_t scene;
+    uint8_t root, quality;
+    char label[20];
+} follow = {-1, 0, MAJ, ""};
+
+static int active_scene(void)
+{
+    char name[13];
+    groove_project_name(name);
+    for (unsigned i = 0; i < GROOVE_FACTORY_PROJECTS; ++i) {
+        char padded[12];
+        memset(padded, ' ', sizeof padded);
+        memcpy(padded, scenes[i].name, strlen(scenes[i].name));
+        if (!memcmp(name, padded, 12)) return (int)i;
+    }
+    return -1;
+}
+const char *worship_chord_label(void) { return follow.label; }
+int worship_keys(uint32_t keys, uint32_t pressed, int octave)
+{
+    int scene = active_scene();
+    if (scene < 0) { follow.scene = -1; return -1; }
+    const struct scene *s = &scenes[scene];
+    if (follow.scene != scene) { follow.scene = (int8_t)scene; follow.root = s->root; follow.quality = MAJ; }
+    /* Only a new key press re-reads the chord: lifting fingers one at a time
+     * must never turn A-C-E into C-E (C major) on the way out. */
+    if (!(keys & pressed)) return 0;
+    unsigned lowest = 128, mask = 0;
+    for (unsigned key = 0; key < 27; ++key)
+        if (keys & (1U << key)) {
+            unsigned note = groove_key_note(0, key, octave);
+            if (note < lowest) lowest = note;
+        }
+    if (lowest > 127) return 0;
+    for (unsigned key = 0; key < 27; ++key)
+        if (keys & (1U << key)) {
+            unsigned note = groove_key_note(0, key, octave);
+            if (note < 128) mask |= 1U << ((note - lowest) % 12U);
+        }
+    unsigned root = lowest % 12U, quality = follow.quality;
+    if (mask & (1U << 4)) quality = MAJ;
+    else if (mask & (1U << 3)) quality = MIN;
+    else if (mask & (1U << 2)) quality = SUS2;
+    else if (mask & (1U << 5)) quality = SUS4;
+    if (root == follow.root && quality == follow.quality) return 0;
+    struct groove_step cells[GROOVE_STEPS];
+    for (unsigned t = 0; t < LAYERS; ++t) {
+        if (s->part[t].role == BEAT) continue;
+        layer_cells(s, t, root, quality, cells);
+        groove_sequence_replace(t, 0, cells, GROOVE_STEPS);
+    }
+    follow.root = (uint8_t)root; follow.quality = (uint8_t)quality;
+    static const char *const roots[12] = {"C","C#","D","Eb","E","F","F#","G","Ab","A","Bb","B"};
+    static const char *const kinds[QUALITIES] = {"MAJ", "MIN", "SUS2", "SUS4"};
+    char *out = follow.label;
+    strcpy(out, "CHORD  "); strcat(out, roots[root]); strcat(out, " "); strcat(out, kinds[quality]);
+    return 1;
 }
