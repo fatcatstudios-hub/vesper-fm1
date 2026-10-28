@@ -9,6 +9,16 @@
 #include "fm1.h"
 
 #define LUSH_CODE FM1_AUDIO_CODE
+/* Diagnostic switches for host measurements; the defaults are the shipped sound. */
+#ifndef LUSH_AIR_SCALE
+#define LUSH_AIR_SCALE 950
+#endif
+#ifndef LUSH_DRIVE
+#define LUSH_DRIVE 1
+#endif
+#ifndef LUSH_ANALOG
+#define LUSH_ANALOG 1
+#endif
 #include "lush_tables.inc"
 #include "lush_sea_dqt.inc"
 #include "fm1_sea.h"
@@ -40,23 +50,23 @@ struct patch {
  * resonance, more saturation, analog drift on every oscillator voice. */
 static FM1_AUDIO_DATA const struct patch patches[LUSH_PATCHES] = {
     /*                    ks saw pul sin noi uni det drf pw oct cut key env res drv  fenv              aenv               vel gain ch spr br dec st */
-    [LUSH_AIR_PAD]      = {0, 100,  0, 18,  4, 3, 11, 6,  0, 0, 66, 64, 20, 10, 40, {96,104,40,100}, {92,100,108,103},  40, 46, 1, 90,  0,  0, 0, 0, 0, 0,0,0, 0,0, 0},
-    [LUSH_STRINGS]      = {0,  88, 58,  0,  2, 2,  9, 6, 70, 0, 72, 64, 14,  8, 44, {85,98,52,96},   {84,96,112,99},    50, 36, 1, 80,  0,  0, 0, 0, 0, 0,0,0, 0,0, 0},
-    [LUSH_GLASS_PLUCK]  = {0,  96, 44,  0,  2, 2,  8, 5, 64, 0, 50,100, 36, 26, 44, {18,72,10,76},   {24,88,0,80},      90, 62, 1, 70,  0,  0, 0, 0, 0, 46, 66,84, 10, 4, 40},
-    [LUSH_HARP]         = {1,   0,  0, 20,  0, 1,  0, 2,  0, 0,  0,  0,  0,  0,  0, {0,0,0,0},       {22,100,0,80},     96, 96, 0, 70, 58,124, 0, 0, 0, 40, 64,84, 6, 5, 50},
-    [LUSH_FELT]         = {1,   0,  0, 52,  0, 1,  0, 2,  0, 0,  0,  0,  0,  0,  0, {0,0,0,0},       {24,94,0,76},      80, 90, 0, 60, 22,123, 0, 0, 0, 44, 66,86, 6, 6, 50},
+    [LUSH_AIR_PAD]      = {0, 100,  0, 18,  0, 3, 11, 6,  0, 0, 66, 64, 20, 10, 40, {96,104,40,100}, {92,100,108,103},  40, 46, 1, 90,  0,  0, 0, 0, 0, 0,0,0, 0,0, 0},
+    [LUSH_STRINGS]      = {0,  88, 58,  0,  0, 2,  9, 6, 70, 0, 72, 64, 14,  8, 44, {85,98,52,96},   {84,96,112,99},    50, 36, 1, 80,  0,  0, 0, 0, 0, 0,0,0, 0,0, 0},
+    [LUSH_GLASS_PLUCK]  = {0,  96, 44,  0,  0, 2,  8, 5, 64, 0, 50,100, 36, 26, 44, {18,72,10,76},   {24,88,0,80},      90, 62, 1, 70,  0,  0, 0, 0, 0, 0, 66,84, 10, 4, 40},
+    [LUSH_HARP]         = {1,   0,  0, 20,  0, 1,  0, 2,  0, 0,  0,  0,  0,  0,  0, {0,0,0,0},       {22,100,0,80},     96, 122, 0, 70, 58,124, 0, 0, 0, 0, 64,84, 6, 5, 50},
+    [LUSH_FELT]         = {1,   0,  0, 52,  0, 1,  0, 2,  0, 0,  0,  0,  0,  0,  0, {0,0,0,0},       {24,94,0,76},      80, 112, 0, 60, 22,123, 0, 0, 0, 0, 66,86, 6, 6, 50},
     [LUSH_WARM_BASS]    = {0,  86,  0, 90,  0, 1,  0, 3,  0,-1, 44,100, 22, 14, 40, {14,70,30,64},   {22,80,124,68},    72, 64, 0,  0,  0,  0, 0, 0, 0, 0,0,0, 0,0, 0},
     [LUSH_SUB]          = {0,  22,  0,127,  0, 1,  0, 2,  0, 0, 48,100,  4,  0, 10, {60,80,64,80},   {70,90,127,94},    40, 70, 0,  0,  0,  0, 0, 0, 0, 0,0,0, 0,0, 0},
     [LUSH_AIR_BELL]     = {1,   0,  0, 34,  0, 1,  0, 2,  0, 0,  0,  0,  0,  0,  0, {0,0,0,0},       {30,104,0,90},     64, 48, 1,100, 70,125, 0, 0, 0, 0,0,0, 0,0, 0},
-    [LUSH_DETUNE_PLUCK] = {0, 104, 30,  0,  2, 3, 16, 7, 60, 0, 52,104, 34, 22, 48, {20,74,12,76},   {24,90,0,82},      92, 64, 0,  0,  0,  0, 1, 0, 0, 40, 66,84, 12, 5, 0},
-    [LUSH_SUPERSAW]     = {0, 112,  0, 16,  2, 3, 22, 8,  0, 0, 64, 92, 24, 14, 46, {20,82,40,82},   {26,86,56,84},     80, 64, 0,  0,  0,  0, 1, 0, 0, 22, 72,86, 14, 6, 0},
-    [LUSH_JUNO_ARP]     = {0,  40,110,  0,  2, 2, 12, 7, 92, 0, 58,100, 32, 30, 44, {12,76,14,76},   {24,86,30,78},     88, 58, 1, 64,  0,  0, 0, 0, 0, 34, 60,82, 12, 2, 30},
+    [LUSH_DETUNE_PLUCK] = {0, 104, 30,  0,  0, 3, 12, 7, 60, 0, 52,104, 34, 22, 48, {20,74,12,76},   {24,90,0,82},      92, 64, 0,  0,  0,  0, 1, 0, 0, 0, 66,84, 12, 5, 0},
+    [LUSH_SUPERSAW]     = {0, 112,  0, 16,  0, 3, 15, 8,  0, 0, 64, 92, 24, 14, 46, {20,82,40,82},   {26,86,56,84},     80, 64, 0,  0,  0,  0, 1, 0, 0, 0, 72,86, 14, 6, 0},
+    [LUSH_JUNO_ARP]     = {0,  40,110,  0,  0, 2, 9, 7, 92, 0, 58,100, 32, 30, 44, {12,76,14,76},   {24,86,30,78},     88, 58, 1, 64,  0,  0, 0, 0, 0, 0, 60,82, 12, 2, 30},
     /* Sampled: transient kept (fast attack), gentle velocity-tracked low-pass. sine_octave = transpose. */
-    [LUSH_PIANO]        = {2,   0,  0,  0,  0, 1,  0, 0,  0, 0,108, 64,  0,  0,  8, {0,0,127,0},     {4,100,127,84},    72, 96, 0, 60,  0,  0, 0, 0, 4, 40, 70,86, 6, 6, 50},
-    [LUSH_MARIMBA]      = {2,   0,  0,  0,  0, 1,  0, 0,  0, 0,112, 64,  0,  0,  6, {0,0,127,0},     {4,100,127,78},    70, 96, 0, 70,  0,  0, 0, 4, 3, 52, 62,82, 8, 5, 60},
-    [LUSH_GLOCK]        = {2,   0,  0,  0,  0, 1,  0, 0,  0, 1,118, 64,  0,  0,  0, {0,0,127,0},     {4,100,127,92},    64, 66, 1, 90,  0,  0, 0, 7, 1, 30, 58,86, 0, 0, 80},
+    [LUSH_PIANO]        = {2,   0,  0,  0,  0, 1,  0, 0,  0, 0,108, 64,  0,  0,  8, {0,0,127,0},     {4,100,127,84},    72, 124, 0, 60,  0,  0, 0, 0, 4, 0, 70,86, 6, 6, 50},
+    [LUSH_MARIMBA]      = {2,   0,  0,  0,  0, 1,  0, 0,  0, 0,112, 64,  0,  0,  6, {0,0,127,0},     {4,100,127,78},    70, 122, 0, 70,  0,  0, 0, 4, 3, 0, 62,82, 8, 5, 60},
+    [LUSH_GLOCK]        = {2,   0,  0,  0,  0, 1,  0, 0,  0, 1,118, 64,  0,  0,  0, {0,0,127,0},     {4,100,127,92},    64, 92, 1, 90,  0,  0, 0, 7, 1, 0, 58,86, 0, 0, 80},
     /* Omnisphere-style hybrids: the air halo is the point. */
-    [LUSH_HALO_PLUCK]   = {0,  70, 40,  0,  0, 2, 10, 6, 70, 0, 48, 96, 40, 30, 40, {16,74,8,78},    {20,82,0,80},      86, 38, 1, 70,  0,  0, 0, 0, 0, 80,60,88, 10,6, 70},
+    [LUSH_HALO_PLUCK]   = {0,  70, 40,  0,  0, 2, 10, 6, 70, 0, 48, 96, 40, 30, 40, {16,74,8,78},    {20,82,0,80},      86, 38, 1, 70,  0,  0, 0, 0, 0, 7,60,88, 10,6, 70},
     [LUSH_AIR_SEQ]      = {0,   0,  0,  0,  0, 1,  0, 0,  0, 0, 90, 64,  0,  0,  0, {0,0,127,0},     {20,80,0,84},      80, 50, 0, 90,  0,  0, 0, 0, 0,127,30,76, 16,5,100},
     [LUSH_DETUNE_BASS]  = {0, 104,  0, 70,  0, 2, 11, 4,  0,-1, 42,100, 26, 20, 46, {14,68,20,62},   {22,76,90,64},     84, 88, 0,  0,  0,  0, 0, 0, 0, 0,0,0, 0,0, 0},
 };
@@ -385,9 +395,11 @@ LUSH_CODE void lush_track_reset(unsigned track)
 static inline LUSH_CODE int32_t warm_filter(int32_t osc, const struct patch *p, int32_t f, int32_t q,
                                             int32_t *lp1, int32_t *bp1, int32_t *lp2, int32_t *bp2)
 {
-    int32_t x = clamp15(osc + ((osc * p->drive) >> 7));
+    int32_t x = clamp15(osc + ((osc * p->drive * LUSH_DRIVE) >> 7));
+#if LUSH_DRIVE
     int32_t x2 = (x * x) >> 15;
     x = (3 * x - ((x2 * x) >> 15)) >> 1;
+#endif
     *lp1 += (int32_t)(((int64_t)f * *bp1) >> 15);
     int32_t hp = x - *lp1 - (int32_t)(((int64_t)q * *bp1) >> 15);
     *bp1 += (int32_t)(((int64_t)f * hp) >> 15);
@@ -439,7 +451,7 @@ static LUSH_CODE void render_voice(struct voice *v)
     pan = pan < 0 ? 0 : pan > 128 ? 128 : pan;
     int32_t left = (int32_t)(128 - pan) * 256, right = (int32_t)pan * 256;
     unsigned index = (unsigned)(v - voices);
-    int32_t air_gain = p->air * 950; /* narrow band-pass of noise is quiet; ~3.7x */
+    int32_t air_gain = p->air * LUSH_AIR_SCALE; /* narrow band-pass of noise is quiet; ~3.7x */
     int32_t saw_level = p->stereo ? (p->unison >= 3 ? p->saw * 172 : p->saw * 258)
                                   : (p->saw * 258) / (p->unison ? p->unison : 1);
     for (unsigned at = 0; at < N; at += TICK) {
@@ -508,7 +520,7 @@ static LUSH_CODE void render_voice(struct voice *v)
                  * on its own slower envelope, so the halo blooms after the attack. */
                 int32_t n = noise15(&v->random);
                 v->air_lp += (int32_t)(((int64_t)v->air_f * v->air_bp) >> 15);
-                int32_t hp = n - v->air_lp - ((2200 * v->air_bp) >> 15);
+                int32_t hp = n - v->air_lp - ((800 * v->air_bp) >> 15); /* narrow: a tone, not hiss */
                 v->air_bp += (int32_t)(((int64_t)v->air_f * hp) >> 15);
                 if (v->air_bp > (1 << 18) || v->air_bp < -(1 << 18)) v->air_bp >>= 1;
                 air_amp += air_step;
@@ -584,7 +596,8 @@ static LUSH_CODE int32_t shimmer_sample(int32_t input)
     unsigned d1 = SHIMMER_WINDOW - p1 + 2U, d2 = SHIMMER_WINDOW - p2 + 2U;
     int32_t a = shimmer_line[(shimmer_write + SHIMMER_LEN - d1) & (SHIMMER_LEN - 1U)];
     int32_t b = shimmer_line[(shimmer_write + SHIMMER_LEN - d2) & (SHIMMER_LEN - 1U)];
-    int32_t g1 = (int32_t)(p1 < SHIMMER_WINDOW / 2U ? p1 : SHIMMER_WINDOW - p1) * 64; /* 0..32768 */
+    int32_t sn = sine15((uint32_t)p1 << 21);                      /* sin(pi * p1 / W) */
+    int32_t g1 = (sn * sn) >> 15;                                  /* sin^2: smooth grain edges */
     int32_t y = (a * g1 + b * (32768 - g1)) >> 15;
     shimmer_write = (shimmer_write + 1U) & (SHIMMER_LEN - 1U);
     if (++shimmer_phase == SHIMMER_WINDOW) shimmer_phase = 0;
@@ -667,8 +680,12 @@ static int32_t analog_lp[2];
 static inline LUSH_CODE int32_t analog(unsigned ch, int32_t x)
 {
     x = clamp15(x);
+#if LUSH_ANALOG
     int32_t x2 = (x * x) >> 15;
     int32_t y = x + ((x2 * 2949) >> 15) - ((((x2 * x) >> 15) * 3932) >> 15); /* +0.09x^2 -0.12x^3 */
+#else
+    int32_t y = x;
+#endif
     analog_lp[ch] += ((y - analog_lp[ch]) * 23500) >> 15;
     return analog_lp[ch];
 }
@@ -757,8 +774,8 @@ LUSH_CODE void lush_render(int32_t *output)
         int32_t rr = half ? rev_out[1] : (rev_prev[1] + rev_out[1]) >> 1;
         l += ((dl + ((rl * 9) >> 3)) * wet) >> 15;
         r += ((dr + ((rr * 9) >> 3)) * wet) >> 15;
-        /* -3.5 dB bus trim keeps the limiter for rare peaks only. */
-        output[2 * j] += soft_limit(dc_block(0, analog(0, (l * 22000) >> 15))) << 8;
-        output[2 * j + 1] += soft_limit(dc_block(1, analog(1, (r * 22000) >> 15))) << 8;
+        /* -1 dB bus trim keeps the limiter for rare peaks only. */
+        output[2 * j] += soft_limit(dc_block(0, analog(0, (l * 29200) >> 15))) << 8;
+        output[2 * j + 1] += soft_limit(dc_block(1, analog(1, (r * 29200) >> 15))) << 8;
     }
 }

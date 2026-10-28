@@ -64,6 +64,15 @@ Fork of M-VAVE's official **FM1 Open V14** (github.com/m-vave/fm1_open, GPLv3 + 
   - **Shimmer reverb:** an octave-up granular pitch shifter in the plate's feedback, set per scene (20–80). Stable at maximum: the tail decays to silence, and upper-octave energy in the tail rises from 0.16 to 0.91.
   - Levels: scenes within 3.6 dB, peaks ≤ 0.71. CPU: about 1,400 cycles/sample on x86 for a busy halo scene (≈ +25% over the previous pass).
 
+- **Clarity pass** (Zach: "less fuzzy with the sounds, it sounds like everything is super fuzzy"):
+  - Measured each stage's off-harmonic energy ("fuzz"). The air halo (filtered noise) was the cause: as loud as the notes themselves (−3 to +3 dB). Drive, the analog stage and the sample codec (56–62 dB SNR) were not.
+  - Air is off on all voices except a faint tonal halo on HALO PLUCK. AIR SEQ is removed from the scenes; the oscillator noise ingredient is zeroed.
+  - Shimmer is capped at 30 with sin² grain crossfades. Detune is about a third lower on SUPERSAW, DETUNE PLUCK and JUNO ARP.
+  - Per voice: piano fuzz −2.7 → −25.7 dB, marimba +2.4 → −18.4, glass pluck −5.2 → −29.0.
+  - Whole mix: tones stand 42 dB above the noise floor (was 27); 1–8 kHz spectral flatness 0.033 → 0.010.
+  - Levels re-balanced: scenes within 2.9 dB, peaks ≤ 0.72.
+  - Diagnostic switches `LUSH_AIR_SCALE`, `LUSH_DRIVE`, `LUSH_ANALOG` are kept for host measurements.
+
 **Not started yet:** shimmer/compression, simple pattern controls, an always-visible key display, and building and flashing real firmware.
 
 ## Architecture findings

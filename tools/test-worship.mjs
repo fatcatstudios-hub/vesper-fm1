@@ -50,10 +50,10 @@ const playing = render(44100 * 4 / 128);
 check(playing.rms > 0.003, `scene plays audio (rms ${playing.rms.toFixed(4)}, peak ${playing.peak.toFixed(3)})`);
 check(playing.peak < 1.0, 'no hard clipping');
 
-// Loop lengths: DOTTED 8TH runs 16 / 48 / 16 / 16-step loops against each other.
+// Loop lengths: DOTTED 8TH runs 16 / 48 / 16 / 32-step loops against each other.
 const st = mem().slice(x.sim_state(), x.sim_state() + 225);
 const lengths = [0, 1, 2, 3].map((t) => st[209 + t]);
-check(JSON.stringify(lengths) === JSON.stringify([16, 48, 16, 16]), `polymetric loop lengths ${lengths.join('/')}`);
+check(JSON.stringify(lengths) === JSON.stringify([16, 48, 16, 32]), `polymetric loop lengths ${lengths.join('/')}`);
 
 // Chord follow is tested on MORNING: piano ARP (track 1), marimba LEAD, bass, air LEAD (no pads).
 x.sim_preset(5); render(10);
