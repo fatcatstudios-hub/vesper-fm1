@@ -300,7 +300,7 @@ static void layer_cells(const struct scene *s, unsigned layer, unsigned root, un
             const struct sequence *q = &sequences[pattern];
             int d = q->degree[at];
             if (d >= 0) {
-                unsigned base = register_base(v->role == LEAD ? 67 : 55, root);
+                unsigned base = register_base(v->role == LEAD ? 60 : 48, root); /* low-mid: warm, not music box */
                 n.note = (uint8_t)(base + chord_tones[quality][d]);
                 int vel = (int)accent(beat) + human[beat];
                 if (v->role == LEAD) vel -= 10;

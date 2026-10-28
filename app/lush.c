@@ -30,20 +30,22 @@ struct patch {
     uint8_t bright, decay;          /* plucked string: excitation tone, sustain */
     uint8_t stereo;                 /* 1: unison saws split left/right, two filters */
 };
+/* Warm voicing: soft 5-10 ms attacks (no clicks), darker cutoffs, little
+ * resonance, more saturation, analog drift on every oscillator voice. */
 static FM1_AUDIO_DATA const struct patch patches[LUSH_PATCHES] = {
-    [LUSH_AIR_PAD] = {0, 100, 0, 18, 7, 3, 11, 5, 0, 0, 70, 64, 22, 18, 30, {96,104,40,100}, {92,100,108,103}, 40, 46, 1, 90, 0, 0, 0},
-    [LUSH_STRINGS] = {0, 88, 58, 0, 4, 2, 8, 4, 70, 0, 78, 64, 16, 12, 36, {85,98,52,96}, {84,96,112,99}, 50, 36, 1, 80, 0, 0, 0},
-    [LUSH_GLASS_PLUCK] = {0, 96, 52, 0, 3, 2, 7, 3, 64, 0, 55, 110, 46, 44, 24, {4,66,0,72}, {6,86,0,74}, 90, 58, 1, 70, 0, 0, 0},
-    [LUSH_HARP] = {1, 0, 0, 0, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, {0,0,0,0}, {4,100,0,76}, 96, 96, 0, 70, 92, 124, 0},
-    [LUSH_FELT] = {1, 0, 0, 46, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, {0,0,0,0}, {10,92,0,72}, 80, 90, 0, 60, 34, 122, 0},
-    [LUSH_WARM_BASS] = {0, 86, 0, 90, 0, 1, 0, 2, 0, -1, 46, 100, 26, 22, 16, {12,70,30,64}, {18,80,124,68}, 72, 64, 0, 0, 0, 0, 0},
-    [LUSH_SUB] = {0, 22, 0, 127, 0, 1, 0, 1, 0, 0, 50, 100, 4, 0, 0, {60,80,64,80}, {70,90,127,94}, 40, 70, 0, 0, 0, 0, 0},
-    [LUSH_AIR_BELL] = {1, 0, 0, 40, 0, 1, 0, 2, 0, 1, 0, 0, 0, 0, 0, {0,0,0,0}, {30,104,0,90}, 64, 40, 1, 100, 120, 126, 0},
-    /* ks saw pulse sine noise uni det drift pw oct cut key env res drv  fenv  aenv  vel gain ch spread br dec st */
-    [LUSH_DETUNE_PLUCK] = {0, 104, 30, 0, 4, 3, 19, 6, 60, 0, 58, 112, 44, 40, 28, {4,68,6,74}, {5,88,0,78}, 92, 60, 0, 0, 0, 0, 1},
-    [LUSH_SUPERSAW] = {0, 112, 0, 14, 5, 3, 27, 7, 0, 0, 72, 96, 30, 26, 22, {6,80,40,80}, {8,84,56,82}, 80, 62, 0, 0, 0, 0, 1},
-    [LUSH_JUNO_ARP] = {0, 40, 110, 0, 3, 2, 14, 6, 92, 0, 64, 104, 38, 52, 26, {4,72,10,74}, {6,84,30,76}, 88, 54, 1, 64, 0, 0, 0},
-    [LUSH_DETUNE_BASS] = {0, 104, 0, 70, 0, 2, 12, 3, 0, -1, 44, 100, 30, 34, 30, {6,66,20,62}, {10,74,90,64}, 84, 86, 0, 0, 0, 0, 0},
+    /*                    ks saw pul sin noi uni det drf pw oct cut key env res drv  fenv              aenv               vel gain ch spr br dec st */
+    [LUSH_AIR_PAD]      = {0, 100,  0, 18,  4, 3, 11, 6,  0, 0, 66, 64, 20, 10, 40, {96,104,40,100}, {92,100,108,103},  40, 46, 1, 90,  0,  0, 0},
+    [LUSH_STRINGS]      = {0,  88, 58,  0,  2, 2,  9, 6, 70, 0, 72, 64, 14,  8, 44, {85,98,52,96},   {84,96,112,99},    50, 36, 1, 80,  0,  0, 0},
+    [LUSH_GLASS_PLUCK]  = {0,  96, 44,  0,  2, 2,  8, 5, 64, 0, 50,100, 36, 26, 44, {18,72,10,76},   {24,88,0,80},      90, 62, 1, 70,  0,  0, 0},
+    [LUSH_HARP]         = {1,   0,  0, 20,  0, 1,  0, 2,  0, 0,  0,  0,  0,  0,  0, {0,0,0,0},       {22,100,0,80},     96, 96, 0, 70, 58,124, 0},
+    [LUSH_FELT]         = {1,   0,  0, 52,  0, 1,  0, 2,  0, 0,  0,  0,  0,  0,  0, {0,0,0,0},       {24,94,0,76},      80, 90, 0, 60, 22,123, 0},
+    [LUSH_WARM_BASS]    = {0,  86,  0, 90,  0, 1,  0, 3,  0,-1, 44,100, 22, 14, 40, {14,70,30,64},   {22,80,124,68},    72, 64, 0,  0,  0,  0, 0},
+    [LUSH_SUB]          = {0,  22,  0,127,  0, 1,  0, 2,  0, 0, 48,100,  4,  0, 10, {60,80,64,80},   {70,90,127,94},    40, 70, 0,  0,  0,  0, 0},
+    [LUSH_AIR_BELL]     = {1,   0,  0, 34,  0, 1,  0, 2,  0, 0,  0,  0,  0,  0,  0, {0,0,0,0},       {30,104,0,90},     64, 48, 1,100, 70,125, 0},
+    [LUSH_DETUNE_PLUCK] = {0, 104, 30,  0,  2, 3, 16, 7, 60, 0, 52,104, 34, 22, 48, {20,74,12,76},   {24,90,0,82},      92, 64, 0,  0,  0,  0, 1},
+    [LUSH_SUPERSAW]     = {0, 112,  0, 16,  2, 3, 22, 8,  0, 0, 64, 92, 24, 14, 46, {20,82,40,82},   {26,86,56,84},     80, 64, 0,  0,  0,  0, 1},
+    [LUSH_JUNO_ARP]     = {0,  40,110,  0,  2, 2, 12, 7, 92, 0, 58,100, 32, 30, 44, {12,76,14,76},   {24,86,30,78},     88, 58, 1, 64,  0,  0, 0},
+    [LUSH_DETUNE_BASS]  = {0, 104,  0, 70,  0, 2, 11, 4,  0,-1, 42,100, 26, 20, 46, {14,68,20,62},   {22,76,90,64},     84, 88, 0,  0,  0,  0, 0},
 };
 static const char *const names[LUSH_PATCHES] = {
     "FM ENGINE", "AIR PAD", "STRINGS", "GLASS PLUCK", "HARP", "FELT KEYS",
@@ -97,7 +99,9 @@ struct voice {
     int32_t f, q;                     /* filter coefficients, Q15 */
     int32_t lp1, bp1, lp2, bp2;       /* left / mono filter */
     int32_t rl1, rb1, rl2, rb2;       /* right filter for stereo unison */
-    int32_t drift, drift_target;      /* cents, Q8 */
+    int32_t drift, drift_target;      /* slow wander, cents Q8 */
+    int32_t offset;                   /* fixed per-note tuning offset, cents Q8 */
+    uint16_t drift_timer;             /* ticks until the wander picks a new target */
     uint32_t random;
     /* plucked string */
     uint32_t ks_delay;                /* Q16 samples */
@@ -173,14 +177,18 @@ static LUSH_CODE void filter_tick(struct voice *v, const struct patch *p)
 static LUSH_CODE void voice_tick(struct voice *v, const struct patch *p)
 {
     /* Slow random pitch drift, like an analog oscillator settling. */
-    if ((rng(&v->random) >> 24) < 6) v->drift_target = (int32_t)((rng(&v->random) >> 16) % (2U * p->drift * 256U + 1U)) - p->drift * 256;
-    v->drift += (v->drift_target - v->drift) >> 6;
+    /* A new target every 0.6..2 s, approached over ~0.4 s: wander, not warble. */
+    if (!v->drift_timer--) {
+        v->drift_target = (int32_t)((rng(&v->random) >> 16) % (2U * p->drift * 256U + 1U)) - p->drift * 256;
+        v->drift_timer = (uint16_t)(1650U + (rng(&v->random) >> 20) % 3850U);
+    }
+    v->drift += (v->drift_target - v->drift) >> 10;
     envelope_tick(&v->amp, p->aenv);
     if (!p->ks) {
         envelope_tick(&v->filter, p->fenv);
         filter_tick(v, p);
         int32_t spread = p->detune * 256;
-        uint32_t base = detune(v->base, v->drift);
+        uint32_t base = detune(v->base, v->drift + v->offset);
         if (p->unison >= 3) {
             v->inc[0] = detune(base, -spread); v->inc[1] = base; v->inc[2] = detune(base, spread);
         } else if (p->unison == 2) {
@@ -225,7 +233,9 @@ static LUSH_CODE void start_voice(unsigned track, unsigned note, unsigned veloci
     v->filter.level = 0; v->filter.stage = STAGE_ATTACK;
     v->lp1 = v->bp1 = v->lp2 = v->bp2 = 0;
     v->rl1 = v->rb1 = v->rl2 = v->rb2 = 0;
-    v->drift = v->drift_target = 0;
+    v->drift = v->drift_target = 0; v->drift_timer = 0;
+    /* Each note lands slightly differently, like an analog poly's voice cards. */
+    v->offset = (int32_t)((rng(&v->random) >> 16) % (p->drift * 256U + 1U)) - (int32_t)(p->drift * 128U);
     for (unsigned i = 0; i < 4; ++i) v->phase[i] = rng(&v->random); /* free-running, like analog */
     unsigned slot = layer[track].pan_next++;
     int32_t offset = (slot & 1U) ? (int32_t)p->spread : -(int32_t)p->spread;
@@ -403,6 +413,7 @@ enum { DELAY_LEN = 24000 }; /* 1.09 s at 22.05 kHz: a quarter note down to 55 BP
 static int16_t delay_line[DELAY_LEN];
 static unsigned delay_write;
 static int32_t delay_lp, delay_hp, delay_prev[2], delay_out[2];
+static uint32_t tape_wow, tape_flutter;
 static inline LUSH_CODE int32_t delay_tap(uint32_t delay_q16)
 {
     uint32_t pos = ((uint32_t)delay_write << 16) - delay_q16;
@@ -486,6 +497,17 @@ static LUSH_CODE void reverb_sample(int32_t input, int32_t out[2])
 }
 
 static int32_t dc_in[2], dc_out[2]; /* dc_out is Q8 above the signal */
+static int32_t analog_lp[2];
+/* Analog output stage: gentle even+odd saturation, then a soft roll-off near
+ * 9 kHz so nothing reads as glassy. Its small DC is removed by dc_block. */
+static inline LUSH_CODE int32_t analog(unsigned ch, int32_t x)
+{
+    x = clamp15(x);
+    int32_t x2 = (x * x) >> 15;
+    int32_t y = x + ((x2 * 2949) >> 15) - ((((x2 * x) >> 15) * 3932) >> 15); /* +0.09x^2 -0.12x^3 */
+    analog_lp[ch] += ((y - analog_lp[ch]) * 23500) >> 15;
+    return analog_lp[ch];
+}
 static inline LUSH_CODE int32_t dc_block(unsigned ch, int32_t x)
 {
     int32_t y = ((x - dc_in[ch]) << 8) + (int32_t)(((int64_t)dc_out[ch] * 32675) >> 15);
@@ -541,11 +563,20 @@ LUSH_CODE void lush_render(int32_t *output)
         /* half-rate delay and reverb, linearly interpolated back up */
         if (!(j & 1U)) {
             int32_t in = (bus_delay[j] + bus_delay[j + 1]) >> 1;
-            int32_t echo = delay_tap(dtime), echo_r = delay_tap(dtime_r);
+            /* Tape echo: slow wow plus a little flutter bend the repeat time
+             * (about +-0.3 %), and each pass is saturated and darkened. */
+            tape_wow += 68000U;      /* ~0.35 Hz at 22.05 kHz */
+            tape_flutter += 1150000U; /* ~5.9 Hz */
+            int32_t wobble = sine15(tape_wow) + (sine15(tape_flutter) >> 3);
+            int32_t bend = (int32_t)(((int64_t)(dtime >> 9) * wobble) >> 15); /* +-dtime/512 */
+            int32_t echo = delay_tap((uint32_t)((int32_t)dtime + bend));
+            int32_t echo_r = delay_tap((uint32_t)((int32_t)dtime_r + bend));
             int32_t mix = (echo + echo_r) >> 1;
-            delay_lp += ((mix - delay_lp) * 11000) >> 15;              /* ~2 kHz: dark repeats */
+            delay_lp += ((mix - delay_lp) * 9500) >> 15;               /* ~1.6 kHz: dark repeats */
             delay_hp += ((delay_lp - delay_hp) * 300) >> 15;           /* remove low mud */
-            int32_t back = delay_lp - delay_hp;
+            int32_t back = clamp15(delay_lp - delay_hp);
+            int32_t b2 = (back * back) >> 15;
+            back = back - (((b2 * back) >> 15) * 10923 >> 15);        /* tape saturation: x - x^3/3 */
             delay_line[delay_write] = (int16_t)clamp15(in + ((back * feedback) >> 15));
             if (++delay_write == DELAY_LEN) delay_write = 0;
             delay_prev[0] = delay_out[0]; delay_prev[1] = delay_out[1];
@@ -562,7 +593,7 @@ LUSH_CODE void lush_render(int32_t *output)
         l += ((dl + ((rl * 9) >> 3)) * wet) >> 15;
         r += ((dr + ((rr * 9) >> 3)) * wet) >> 15;
         /* -1 dB bus trim keeps the limiter for rare peaks only. */
-        output[2 * j] += soft_limit(dc_block(0, (l * 29200) >> 15)) << 8;
-        output[2 * j + 1] += soft_limit(dc_block(1, (r * 29200) >> 15)) << 8;
+        output[2 * j] += soft_limit(dc_block(0, analog(0, (l * 29200) >> 15))) << 8;
+        output[2 * j + 1] += soft_limit(dc_block(1, analog(1, (r * 29200) >> 15))) << 8;
     }
 }

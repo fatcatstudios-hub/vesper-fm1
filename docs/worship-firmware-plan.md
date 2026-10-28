@@ -39,6 +39,14 @@ Fork of M-VAVE's official **FM1 Open V14** (github.com/m-vave/fm1_open, GPLv3 + 
   - **Dual-tap delay:** left at the FX time (dotted 8th), right at 4/3 of it (quarter), cross-fed. Delay sends and feedback raised across the scenes.
   - Busiest-case benchmark: about 1,120 cycles/sample on x86 (two stereo sequence layers plus a bass filling all 16 voices). Levers if the device is tight: a voice cap, 2-saw unison, half-rate chorus.
 
+- **Warmth pass** (Zach's feedback: "still sounds very digital and toy like, I need something warm and organic"):
+  - Fixed a drift bug that warbled every oscillator's pitch about 65 times a second. Drift is now a slow 0.6–2 s wander plus a fixed random tuning offset per note.
+  - Tape echo: wow and flutter on the repeat time, saturation and darkening on every pass.
+  - Analog output stage: even/odd saturation and a soft roll-off near 9 kHz.
+  - Sequences moved down an octave (ARP from C3, LEAD from C4).
+  - Every patch revoiced: 5–10 ms attacks, darker cutoffs, less resonance, more drive, softer plucked strings, bells without the octave "music box" partial.
+  - Result: spectral centroid 679 Hz → 430 Hz; 2–5 kHz down 8 dB, above 5 kHz down 13 dB; low mids up about 2.5 dB.
+
 **Not started yet:** sampled instruments (true acoustic realism), shimmer/compression, simple pattern controls, an always-visible key display, and building and flashing real firmware.
 
 ## Architecture findings
