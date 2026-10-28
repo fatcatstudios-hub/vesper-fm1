@@ -28,20 +28,26 @@ struct patch {
     uint8_t aenv[4];                /* amp env, same layout */
     uint8_t velocity, gain, chorus, spread;
     uint8_t bright, decay;          /* plucked string: excitation tone, sustain */
+    uint8_t stereo;                 /* 1: unison saws split left/right, two filters */
 };
 static FM1_AUDIO_DATA const struct patch patches[LUSH_PATCHES] = {
-    [LUSH_AIR_PAD] = {0, 100, 0, 18, 7, 3, 11, 5, 0, 0, 70, 64, 22, 18, 30, {96,104,40,100}, {92,100,108,103}, 40, 46, 1, 90, 0, 0},
-    [LUSH_STRINGS] = {0, 88, 58, 0, 4, 2, 8, 4, 70, 0, 78, 64, 16, 12, 36, {85,98,52,96}, {84,96,112,99}, 50, 36, 1, 80, 0, 0},
-    [LUSH_GLASS_PLUCK] = {0, 96, 52, 0, 3, 2, 7, 3, 64, 0, 55, 110, 46, 44, 24, {4,66,0,72}, {6,86,0,74}, 90, 58, 1, 70, 0, 0},
-    [LUSH_HARP] = {1, 0, 0, 0, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, {0,0,0,0}, {4,100,0,76}, 96, 70, 0, 70, 92, 124},
-    [LUSH_FELT] = {1, 0, 0, 46, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, {0,0,0,0}, {10,92,0,72}, 80, 62, 0, 60, 34, 122},
-    [LUSH_WARM_BASS] = {0, 86, 0, 90, 0, 1, 0, 2, 0, -1, 46, 100, 26, 22, 16, {12,70,30,64}, {18,80,124,68}, 72, 64, 0, 0, 0, 0},
-    [LUSH_SUB] = {0, 22, 0, 127, 0, 1, 0, 1, 0, 0, 50, 100, 4, 0, 0, {60,80,64,80}, {70,90,127,94}, 40, 70, 0, 0, 0, 0},
-    [LUSH_AIR_BELL] = {1, 0, 0, 40, 0, 1, 0, 2, 0, 1, 0, 0, 0, 0, 0, {0,0,0,0}, {30,104,0,90}, 64, 40, 1, 100, 120, 126},
+    [LUSH_AIR_PAD] = {0, 100, 0, 18, 7, 3, 11, 5, 0, 0, 70, 64, 22, 18, 30, {96,104,40,100}, {92,100,108,103}, 40, 46, 1, 90, 0, 0, 0},
+    [LUSH_STRINGS] = {0, 88, 58, 0, 4, 2, 8, 4, 70, 0, 78, 64, 16, 12, 36, {85,98,52,96}, {84,96,112,99}, 50, 36, 1, 80, 0, 0, 0},
+    [LUSH_GLASS_PLUCK] = {0, 96, 52, 0, 3, 2, 7, 3, 64, 0, 55, 110, 46, 44, 24, {4,66,0,72}, {6,86,0,74}, 90, 58, 1, 70, 0, 0, 0},
+    [LUSH_HARP] = {1, 0, 0, 0, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, {0,0,0,0}, {4,100,0,76}, 96, 96, 0, 70, 92, 124, 0},
+    [LUSH_FELT] = {1, 0, 0, 46, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, {0,0,0,0}, {10,92,0,72}, 80, 90, 0, 60, 34, 122, 0},
+    [LUSH_WARM_BASS] = {0, 86, 0, 90, 0, 1, 0, 2, 0, -1, 46, 100, 26, 22, 16, {12,70,30,64}, {18,80,124,68}, 72, 64, 0, 0, 0, 0, 0},
+    [LUSH_SUB] = {0, 22, 0, 127, 0, 1, 0, 1, 0, 0, 50, 100, 4, 0, 0, {60,80,64,80}, {70,90,127,94}, 40, 70, 0, 0, 0, 0, 0},
+    [LUSH_AIR_BELL] = {1, 0, 0, 40, 0, 1, 0, 2, 0, 1, 0, 0, 0, 0, 0, {0,0,0,0}, {30,104,0,90}, 64, 40, 1, 100, 120, 126, 0},
+    /* ks saw pulse sine noise uni det drift pw oct cut key env res drv  fenv  aenv  vel gain ch spread br dec st */
+    [LUSH_DETUNE_PLUCK] = {0, 104, 30, 0, 4, 3, 19, 6, 60, 0, 58, 112, 44, 40, 28, {4,68,6,74}, {5,88,0,78}, 92, 60, 0, 0, 0, 0, 1},
+    [LUSH_SUPERSAW] = {0, 112, 0, 14, 5, 3, 27, 7, 0, 0, 72, 96, 30, 26, 22, {6,80,40,80}, {8,84,56,82}, 80, 62, 0, 0, 0, 0, 1},
+    [LUSH_JUNO_ARP] = {0, 40, 110, 0, 3, 2, 14, 6, 92, 0, 64, 104, 38, 52, 26, {4,72,10,74}, {6,84,30,76}, 88, 54, 1, 64, 0, 0, 0},
+    [LUSH_DETUNE_BASS] = {0, 104, 0, 70, 0, 2, 12, 3, 0, -1, 44, 100, 30, 34, 30, {6,66,20,62}, {10,74,90,64}, 84, 86, 0, 0, 0, 0, 0},
 };
 static const char *const names[LUSH_PATCHES] = {
     "FM ENGINE", "AIR PAD", "STRINGS", "GLASS PLUCK", "HARP", "FELT KEYS",
-    "WARM BASS", "SUB", "AIR BELL"
+    "WARM BASS", "SUB", "AIR BELL", "DETUNE PLUCK", "SUPERSAW", "JUNO ARP", "DETUNE BASS"
 };
 const char *lush_patch_name(unsigned patch) { return patch < LUSH_PATCHES ? names[patch] : "?"; }
 
@@ -74,7 +80,7 @@ void lush_effects(const uint8_t fx[4], unsigned delay_ticks)
     fx_wet = (int32_t)fx[3] * 240;             /* 0 .. 0.93 */
     uint32_t half = delay_ticks * 4U;          /* 44.1k/8 ticks -> 22.05k samples */
     if (half < 64) half = 64;
-    if (half > 17900) half = 17900;
+    if (half > 17900) half = 17900; /* the right tap runs at 4/3 of this */
     delay_q16 = half << 16;
 }
 
@@ -89,7 +95,8 @@ struct voice {
     struct envelope amp, filter;
     int32_t amp_now;                  /* Q15, interpolated per sample */
     int32_t f, q;                     /* filter coefficients, Q15 */
-    int32_t lp1, bp1, lp2, bp2;
+    int32_t lp1, bp1, lp2, bp2;       /* left / mono filter */
+    int32_t rl1, rb1, rl2, rb2;       /* right filter for stereo unison */
     int32_t drift, drift_target;      /* cents, Q8 */
     uint32_t random;
     /* plucked string */
@@ -217,6 +224,7 @@ static LUSH_CODE void start_voice(unsigned track, unsigned note, unsigned veloci
     v->amp.level = 0; v->amp.stage = STAGE_ATTACK; v->amp_now = 0;
     v->filter.level = 0; v->filter.stage = STAGE_ATTACK;
     v->lp1 = v->bp1 = v->lp2 = v->bp2 = 0;
+    v->rl1 = v->rb1 = v->rl2 = v->rb2 = 0;
     v->drift = v->drift_target = 0;
     for (unsigned i = 0; i < 4; ++i) v->phase[i] = rng(&v->random); /* free-running, like analog */
     unsigned slot = layer[track].pan_next++;
@@ -274,6 +282,24 @@ LUSH_CODE void lush_track_reset(unsigned track)
         }
 }
 
+/* Saturation then a 4-pole state-variable low-pass (two Chamberlin stages). */
+static inline LUSH_CODE int32_t warm_filter(int32_t osc, const struct patch *p, int32_t f, int32_t q,
+                                            int32_t *lp1, int32_t *bp1, int32_t *lp2, int32_t *bp2)
+{
+    int32_t x = clamp15(osc + ((osc * p->drive) >> 7));
+    int32_t x2 = (x * x) >> 15;
+    x = (3 * x - ((x2 * x) >> 15)) >> 1;
+    *lp1 += (int32_t)(((int64_t)f * *bp1) >> 15);
+    int32_t hp = x - *lp1 - (int32_t)(((int64_t)q * *bp1) >> 15);
+    *bp1 += (int32_t)(((int64_t)f * hp) >> 15);
+    *lp2 += (int32_t)(((int64_t)f * *bp2) >> 15);
+    hp = *lp1 - *lp2 - (int32_t)(((int64_t)44000 * *bp2) >> 15);
+    *bp2 += (int32_t)(((int64_t)f * hp) >> 15);
+    if (*bp1 > (1 << 20) || *bp1 < -(1 << 20)) *bp1 >>= 1;
+    if (*bp2 > (1 << 20) || *bp2 < -(1 << 20)) *bp2 >>= 1;
+    return *lp2;
+}
+
 /* ---- buses ---- */
 enum { N = FM1_BLOCK_FRAMES };
 static int32_t bus_dry[2 * N], bus_chorus[N], bus_reverb[N], bus_delay[N];
@@ -286,14 +312,15 @@ static LUSH_CODE void render_voice(struct voice *v)
     int32_t send_r = layer[v->track].reverb, send_d = layer[v->track].delay;
     int32_t left = (int32_t)(128 - v->pan) * 256, right = (int32_t)v->pan * 256;
     unsigned index = (unsigned)(v - voices);
-    int32_t saw_level = (p->saw * 258) / (p->unison ? p->unison : 1);
+    int32_t saw_level = p->stereo ? (p->unison >= 3 ? p->saw * 172 : p->saw * 258)
+                                  : (p->saw * 258) / (p->unison ? p->unison : 1);
     for (unsigned at = 0; at < N; at += TICK) {
         int32_t from = v->amp_now;
         voice_tick(v, p);
         int32_t to = v->amp.level >> 15, step = (to - from) / TICK, amp = from;
         v->amp_now = to;
         for (unsigned k = 0; k < TICK; ++k) {
-            int32_t s;
+            int32_t s, s_right = 0;
             if (p->ks) {
                 int16_t *line = ks_memory[index];
                 uint32_t read = (((uint32_t)v->ks_write << 16) - v->ks_delay) & ((KS_LEN << 16) - 1U);
@@ -309,40 +336,45 @@ static LUSH_CODE void render_voice(struct voice *v)
                     v->phase[3] += v->inc[3];
                 }
             } else {
-                int32_t osc = 0;
+                int32_t a = 0, b = 0, c = 0, common = 0;
                 if (p->saw) {
-                    int32_t sum = saw15(v->phase[0], v->inc[0]);
-                    if (p->unison >= 2) sum += saw15(v->phase[1], v->inc[1]);
-                    if (p->unison >= 3) sum += saw15(v->phase[2], v->inc[2]);
-                    osc += (sum * saw_level) >> 15;
+                    a = saw15(v->phase[0], v->inc[0]);
+                    if (p->unison >= 2) b = saw15(v->phase[1], v->inc[1]);
+                    if (p->unison >= 3) c = saw15(v->phase[2], v->inc[2]);
                 }
                 if (p->pulse) {
                     uint32_t width = 0x18000000U + (uint32_t)p->pw * 0x00d00000U; /* 127 = square */
                     int32_t pulse = saw15(v->phase[0], v->inc[0]) - saw15(v->phase[0] + width, v->inc[0]);
-                    osc += (pulse * p->pulse) >> 8;
+                    if (p->unison >= 2) /* detuned second pulse for the classic chorused arp */
+                        pulse += saw15(v->phase[1], v->inc[1]) - saw15(v->phase[1] + width, v->inc[1]);
+                    common += (pulse * p->pulse) >> (p->unison >= 2 ? 9 : 8);
                 }
-                if (p->sine) osc += (sine15(v->phase[3]) * p->sine) >> 7;
-                if (p->noise) osc += (noise15(&v->random) * p->noise) >> 7;
+                if (p->sine) common += (sine15(v->phase[3]) * p->sine) >> 7;
+                if (p->noise) common += (noise15(&v->random) * p->noise) >> 7;
                 for (unsigned u = 0; u < 4; ++u) v->phase[u] += v->inc[u];
-                /* Warm saturation, then a 4-pole state-variable low-pass. */
-                int32_t x = clamp15(osc + ((osc * p->drive) >> 7));
-                int32_t x2 = (x * x) >> 15;
-                x = (3 * x - ((x2 * x) >> 15)) >> 1;
-                v->lp1 += (int32_t)(((int64_t)v->f * v->bp1) >> 15);
-                int32_t hp = x - v->lp1 - (int32_t)(((int64_t)v->q * v->bp1) >> 15);
-                v->bp1 += (int32_t)(((int64_t)v->f * hp) >> 15);
-                v->lp2 += (int32_t)(((int64_t)v->f * v->bp2) >> 15);
-                hp = v->lp1 - v->lp2 - (int32_t)(((int64_t)44000 * v->bp2) >> 15);
-                v->bp2 += (int32_t)(((int64_t)v->f * hp) >> 15);
-                if (v->bp1 > (1 << 20) || v->bp1 < -(1 << 20)) v->bp1 >>= 1;
-                if (v->bp2 > (1 << 20) || v->bp2 < -(1 << 20)) v->bp2 >>= 1;
-                s = v->lp2;
+                if (p->stereo) {
+                    /* Unison split across the field: outer saws hard left/right, centre shared. */
+                    int32_t l = p->unison >= 3 ? a + (b >> 1) : a, r = p->unison >= 3 ? c + (b >> 1) : b;
+                    l = ((l * saw_level) >> 15) + common;
+                    r = ((r * saw_level) >> 15) + common;
+                    s = warm_filter(l, p, v->f, v->q, &v->lp1, &v->bp1, &v->lp2, &v->bp2);
+                    s_right = warm_filter(r, p, v->f, v->q, &v->rl1, &v->rb1, &v->rl2, &v->rb2);
+                } else {
+                    int32_t osc = (((a + b + c) * saw_level) >> 15) + common;
+                    s = warm_filter(osc, p, v->f, v->q, &v->lp1, &v->bp1, &v->lp2, &v->bp2);
+                }
             }
             amp += step;
             int32_t out = (int32_t)(((int64_t)s * amp) >> 15);
             out = (int32_t)(((int64_t)out * gain) >> 15);
             unsigned j = at + k;
-            if (p->chorus) bus_chorus[j] += out;
+            if (p->stereo) {
+                int32_t outr = (int32_t)(((int64_t)s_right * amp) >> 15);
+                outr = (int32_t)(((int64_t)outr * gain) >> 15);
+                bus_dry[2 * j] += out;
+                bus_dry[2 * j + 1] += outr;
+                out = (out + outr) >> 1; /* sends are mono */
+            } else if (p->chorus) bus_chorus[j] += out;
             else {
                 bus_dry[2 * j] += (out * left) >> 15;
                 bus_dry[2 * j + 1] += (out * right) >> 15;
@@ -367,7 +399,7 @@ static inline LUSH_CODE int32_t chorus_tap(uint32_t delay_q16)
 }
 
 /* ---- delay: dark, tempo-synced, half rate ---- */
-enum { DELAY_LEN = 18000 };
+enum { DELAY_LEN = 24000 }; /* 1.09 s at 22.05 kHz: a quarter note down to 55 BPM */
 static int16_t delay_line[DELAY_LEN];
 static unsigned delay_write;
 static int32_t delay_lp, delay_hp, delay_prev[2], delay_out[2];
@@ -488,8 +520,11 @@ LUSH_CODE void lush_render(int32_t *output)
     if (!any && !voicing) return; /* effects tails are allowed to stop with the engine */
 
     int32_t wet = fx_wet, feedback = fx_feedback;
-    uint32_t dtime = delay_q16, haas = dtime + (290U << 16);
-    if (haas > ((uint32_t)(DELAY_LEN - 2) << 16)) haas = dtime;
+    /* Dual-tap stereo delay, the classic two-delay worship guitar rig:
+     * left repeats at the FX time (dotted eighth by default), right at 4/3 of
+     * it (a quarter), and both feed back, so echoes interlock across the field. */
+    uint32_t dtime = delay_q16, dtime_r = (uint32_t)(((uint64_t)dtime * 4U) / 3U);
+    if (dtime_r > ((uint32_t)(DELAY_LEN - 2) << 16)) dtime_r = (uint32_t)(((uint64_t)dtime * 2U) / 3U);
     for (unsigned j = 0; j < N; ++j) {
         /* chorus */
         int32_t mono = bus_chorus[j];
@@ -506,15 +541,16 @@ LUSH_CODE void lush_render(int32_t *output)
         /* half-rate delay and reverb, linearly interpolated back up */
         if (!(j & 1U)) {
             int32_t in = (bus_delay[j] + bus_delay[j + 1]) >> 1;
-            int32_t echo = delay_tap(dtime), echo_r = delay_tap(haas);
-            delay_lp += ((echo - delay_lp) * 9000) >> 15;              /* ~1.6 kHz: dark repeats */
+            int32_t echo = delay_tap(dtime), echo_r = delay_tap(dtime_r);
+            int32_t mix = (echo + echo_r) >> 1;
+            delay_lp += ((mix - delay_lp) * 11000) >> 15;              /* ~2 kHz: dark repeats */
             delay_hp += ((delay_lp - delay_hp) * 300) >> 15;           /* remove low mud */
             int32_t back = delay_lp - delay_hp;
             delay_line[delay_write] = (int16_t)clamp15(in + ((back * feedback) >> 15));
             if (++delay_write == DELAY_LEN) delay_write = 0;
             delay_prev[0] = delay_out[0]; delay_prev[1] = delay_out[1];
-            delay_out[0] = echo; delay_out[1] = (echo_r * 3 + echo) >> 2;
-            int32_t rin = ((bus_reverb[j] + bus_reverb[j + 1]) >> 2) + ((echo * 6000) >> 15);
+            delay_out[0] = echo; delay_out[1] = echo_r;
+            int32_t rin = ((bus_reverb[j] + bus_reverb[j + 1]) >> 2) + ((mix * 6000) >> 15);
             rev_prev[0] = rev_out[0]; rev_prev[1] = rev_out[1];
             reverb_sample(rin, rev_out);
         }
@@ -525,8 +561,8 @@ LUSH_CODE void lush_render(int32_t *output)
         int32_t rr = half ? rev_out[1] : (rev_prev[1] + rev_out[1]) >> 1;
         l += ((dl + ((rl * 9) >> 3)) * wet) >> 15;
         r += ((dr + ((rr * 9) >> 3)) * wet) >> 15;
-        /* -4 dB bus trim keeps the limiter for rare peaks only. */
-        output[2 * j] += soft_limit(dc_block(0, (l * 20650) >> 15)) << 8;
-        output[2 * j + 1] += soft_limit(dc_block(1, (r * 20650) >> 15)) << 8;
+        /* -1 dB bus trim keeps the limiter for rare peaks only. */
+        output[2 * j] += soft_limit(dc_block(0, (l * 29200) >> 15)) << 8;
+        output[2 * j + 1] += soft_limit(dc_block(1, (r * 29200) >> 15)) << 8;
     }
 }

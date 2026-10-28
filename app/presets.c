@@ -31,10 +31,11 @@ struct scene {
  * the engine; the LUSH engine plays their notes. */
 #define LU(role, level, rev, dly) {GROOVE_PSG, role, 0, level, rev + 16*dly}
 #define DR(level) {GROOVE_808, BEAT, 0, level, 0}
-/* Pattern ids: ARP/LEAD use arp_patterns, BASS uses bass_patterns,
- * BEAT uses beat_patterns; PAD ignores it (sustained open chord). */
-enum { A_8THS, A_ROLL16, A_DOTTED, A_BELLS, A_UPDOWN, A_SPARSE, A_PULSE16, A_PAIRS };
-enum { B_DRONE, B_PULSE8, B_QUARTER, B_HEART };
+/* Pattern ids: ARP/LEAD use the sequence bank, BASS the bass bank, BEAT the
+ * beat bank; PAD ignores it (sustained open chord). */
+enum { S_DOTTED8, S_ROLL3, S_STAIRS, S_OCTAVES, S_GALLOP, S_SYNC, S_DOTTED_RISE, S_PULSE16,
+       S_8THS, S_BELLS, S_SPARSE, S_PAIRS, S_CASCADE, S_UPDOWN, SEQUENCES };
+enum { B_DRONE, B_PULSE8, B_PULSE16, B_SYNC, B_HEART, B_QUARTER, B_DOTTED, BASSES };
 enum { D_HEART, D_FLOOR, D_HALF };
 #define PAD_ LUSH_AIR_PAD
 #define STR_ LUSH_STRINGS
@@ -44,25 +45,32 @@ enum { D_HEART, D_FLOOR, D_HALF };
 #define WBS_ LUSH_WARM_BASS
 #define SUB_ LUSH_SUB
 #define BEL_ LUSH_AIR_BELL
+#define DPL_ LUSH_DETUNE_PLUCK
+#define SAW_ LUSH_SUPERSAW
+#define JUN_ LUSH_JUNO_ARP
+#define DBS_ LUSH_DETUNE_BASS
 #define FM1_ LUSH_NONE
-/* Roots are pitch classes (C=0). Tempos sit in the usual worship range. */
+/* Sequence-first scenes: two interlocking sequences (mid ARP + high LEAD), a
+ * sequenced bass, and a beat. Only four scenes keep a (quiet) pad. Loops of
+ * different lengths (16/32/48 steps) stay locked to the bar but keep evolving.
+ * Delay sends are high; the dual delay does the rest. */
 static const struct scene scenes[GROOVE_FACTORY_PROJECTS] = {
-    {"DOTTED 8TH",  72, 4,110,58,88, {LU(PAD,100,12,0), LU(ARP,104,8,11), LU(BASS,96,2,0), LU(LEAD,88,13,9)},  {0,A_8THS,B_DRONE,A_SPARSE},   {PAD_,GLS_,SUB_,BEL_}},
-    {"OPEN HEAVEN", 68, 7,115,52,90, {LU(PAD,100,13,0), LU(ARP,92,12,9), LU(BASS,94,2,0), LU(ARP,96,11,10)},   {0,A_BELLS,B_DRONE,A_DOTTED},  {STR_,BEL_,SUB_,HRP_}},
-    {"RISING TIDE", 76, 2,104,46,84, {LU(PAD,98,12,0), LU(ARP,102,7,8), LU(BASS,100,1,0), DR(68)},            {0,A_ROLL16,B_PULSE8,D_HEART}, {PAD_,GLS_,WBS_,FM1_}},
-    {"STILL WATER", 64, 9,118,56,92, {LU(PAD,102,14,0), LU(ARP,100,11,9), LU(BASS,94,2,0), LU(LEAD,86,14,10)}, {0,A_UPDOWN,B_DRONE,A_SPARSE}, {PAD_,FLT_,SUB_,BEL_}},
-    {"PULSE KEYS",  80,11,100,44,82, {LU(PAD,96,12,0), LU(ARP,100,6,8), LU(BASS,100,1,0), DR(66)},            {0,A_PULSE16,B_PULSE8,D_FLOOR},{STR_,GLS_,WBS_,FM1_}},
-    {"MORNING",     70, 0,108,54,88, {LU(PAD,100,13,0), LU(ARP,98,9,11), LU(BASS,94,2,0), LU(LEAD,92,12,8)},  {0,A_8THS,B_DRONE,A_BELLS},    {PAD_,HRP_,SUB_,FLT_}},
-    {"SANCTUARY",   66, 5,116,50,90, {LU(PAD,98,14,0), LU(ARP,90,12,10), LU(BASS,92,2,0), LU(PAD,84,14,0)},    {0,A_DOTTED,B_DRONE,0},        {STR_,BEL_,SUB_,PAD_}},
-    {"HEARTBEAT",   74, 4,106,48,86, {LU(PAD,98,12,0), LU(ARP,100,8,9), LU(BASS,100,1,0), DR(70)},            {0,A_PAIRS,B_HEART,D_HEART},   {PAD_,FLT_,WBS_,FM1_}},
-    {"GLORY BUILD", 84, 7, 98,42,80, {LU(PAD,98,11,0), LU(ARP,100,6,8), LU(BASS,102,1,0), DR(72)},            {0,A_ROLL16,B_PULSE8,D_FLOOR}, {STR_,GLS_,WBS_,FM1_}},
-    {"WIDE OPEN",   72, 2,112,54,88, {LU(PAD,100,13,0), LU(ARP,98,10,10), LU(BASS,94,2,0), LU(LEAD,88,13,9)}, {0,A_UPDOWN,B_DRONE,A_BELLS},  {PAD_,HRP_,SUB_,BEL_}},
-    {"ANTHEM 8THS", 88, 9, 96,40,80, {LU(PAD,96,11,0), LU(ARP,100,6,9), LU(BASS,102,1,0), DR(72)},            {0,A_PULSE16,B_PULSE8,D_FLOOR},{STR_,GLS_,WBS_,FM1_}},
-    {"QUIET PLACE", 60,10,120,56,92, {LU(PAD,104,15,0), LU(ARP,96,12,10), LU(BASS,92,2,0), LU(LEAD,86,12,8)}, {0,A_SPARSE,B_DRONE,A_BELLS},  {PAD_,FLT_,SUB_,BEL_}},
-    {"CASCADE",     76, 0,108,50,86, {LU(PAD,98,13,0), LU(ARP,96,10,9), LU(BASS,94,2,0), LU(ARP,92,10,10)},   {0,A_ROLL16,B_QUARTER,A_DOTTED},{STR_,HRP_,SUB_,GLS_}},
-    {"SPIRIT MOVE", 78,11,104,48,84, {LU(PAD,98,12,0), LU(ARP,100,8,11), LU(BASS,100,1,0), DR(66)},           {0,A_DOTTED,B_HEART,D_HALF},   {PAD_,GLS_,WBS_,FM1_}},
-    {"ALTAR CALL",  62, 4,118,54,92, {LU(PAD,100,15,0), LU(ARP,98,11,9), LU(BASS,92,2,0), LU(LEAD,86,14,10)}, {0,A_UPDOWN,B_DRONE,A_SPARSE}, {STR_,FLT_,SUB_,BEL_}},
-    {"FOREVER",     70, 8,110,52,88, {LU(PAD,100,13,0), LU(ARP,98,8,10), LU(BASS,94,2,0), LU(LEAD,88,13,9)},  {0,A_8THS,B_DRONE,A_BELLS},    {PAD_,HRP_,SUB_,BEL_}}
+    {"DOTTED 8TH",  72, 4,104,64,96, {LU(ARP,106,7,13), LU(LEAD,84,10,11), LU(BASS,98,1,2), LU(LEAD,74,12,12)}, {S_DOTTED8,S_ROLL3,B_PULSE8,S_SPARSE},  {JUN_,DPL_,DBS_,BEL_}},
+    {"ROLLING 3S",  76, 7,106,60,94, {LU(ARP,104,7,12), LU(LEAD,82,11,12), LU(BASS,94,2,0), DR(66)},             {S_ROLL3,S_BELLS,B_DRONE,D_HEART},     {DPL_,BEL_,SUB_,FM1_}},
+    {"STAIRCASE",   80, 2, 98,58,92, {LU(ARP,96,6,11), LU(LEAD,88,9,13), LU(BASS,100,1,1), DR(68)},              {S_STAIRS,S_DOTTED8,B_SYNC,D_HALF},    {SAW_,HRP_,DBS_,FM1_}},
+    {"OCTAVE RUN",  84, 9, 96,56,90, {LU(ARP,104,6,10), LU(LEAD,86,8,12), LU(BASS,100,1,0), DR(70)},             {S_OCTAVES,S_SYNC,B_PULSE16,D_FLOOR},  {JUN_,GLS_,DBS_,FM1_}},
+    {"GALLOP",      88,11, 96,58,90, {LU(ARP,104,6,11), LU(LEAD,78,11,13), LU(BASS,100,1,0), DR(70)},            {S_GALLOP,S_SPARSE,B_PULSE8,D_FLOOR},  {DPL_,BEL_,DBS_,FM1_}},
+    {"MORNING",     70, 0,108,62,94, {LU(ARP,104,8,12), LU(LEAD,92,10,13), LU(BASS,92,2,0), LU(PAD,70,13,2)},    {S_8THS,S_DOTTED_RISE,B_DRONE,0},      {HRP_,FLT_,SUB_,PAD_}},
+    {"SANCTUARY",   66, 5,112,60,96, {LU(PAD,76,14,2), LU(LEAD,90,11,13), LU(BASS,92,2,0), LU(ARP,92,9,12)},     {0,S_DOTTED_RISE,B_DRONE,S_SPARSE},    {STR_,BEL_,SUB_,HRP_}},
+    {"HEARTBEAT",   74, 4,102,60,92, {LU(ARP,118,7,11), LU(LEAD,96,9,13), LU(BASS,100,1,0), DR(70)},             {S_PAIRS,S_DOTTED8,B_HEART,D_HEART},   {FLT_,DPL_,WBS_,FM1_}},
+    {"GLORY BUILD", 86, 7, 94,54,88, {LU(ARP,98,5,10), LU(LEAD,86,8,12), LU(BASS,102,1,0), DR(72)},              {S_PULSE16,S_ROLL3,B_PULSE16,D_FLOOR}, {SAW_,JUN_,DBS_,FM1_}},
+    {"CASCADE",     76, 0,104,62,94, {LU(ARP,118,8,12), LU(LEAD,100,9,13), LU(BASS,96,2,0), LU(LEAD,88,12,12)},   {S_CASCADE,S_DOTTED8,B_QUARTER,S_SPARSE},{HRP_,GLS_,SUB_,BEL_}},
+    {"ANTHEM 8THS", 90, 9, 94,52,88, {LU(ARP,102,5,10), LU(LEAD,74,9,11), LU(BASS,102,1,0), DR(72)},             {S_PULSE16,S_BELLS,B_PULSE8,D_FLOOR},  {DPL_,SAW_,DBS_,FM1_}},
+    {"QUIET PLACE", 60,10,114,60,96, {LU(PAD,74,15,2), LU(ARP,92,11,12), LU(BASS,90,2,0), LU(LEAD,84,12,13)},    {0,S_SPARSE,B_DRONE,S_DOTTED_RISE},    {PAD_,FLT_,SUB_,BEL_}},
+    {"SYNC LINES",  78, 2,100,60,92, {LU(ARP,104,6,12), LU(LEAD,84,9,12), LU(BASS,100,1,1), DR(68)},             {S_SYNC,S_ROLL3,B_SYNC,D_HALF},        {JUN_,DPL_,DBS_,FM1_}},
+    {"SPIRIT MOVE", 82,11,100,60,92, {LU(ARP,116,7,12), LU(LEAD,92,10,13), LU(BASS,100,1,0), DR(68)},            {S_DOTTED_RISE,S_SPARSE,B_DOTTED,D_HEART},{GLS_,SAW_,WBS_,FM1_}},
+    {"ALTAR CALL",  62, 4,112,60,96, {LU(PAD,74,15,2), LU(ARP,96,10,12), LU(BASS,90,2,0), LU(LEAD,82,13,13)},    {0,S_UPDOWN,B_DRONE,S_SPARSE},         {STR_,FLT_,SUB_,BEL_}},
+    {"NEON SKY",    92, 8, 94,56,90, {LU(ARP,100,6,11), LU(LEAD,84,8,12), LU(BASS,102,1,0), DR(72)},             {S_OCTAVES,S_CASCADE,B_PULSE16,D_FLOOR},{SAW_,JUN_,DBS_,FM1_}}
 };
 #undef LU
 #undef DR
@@ -188,28 +196,43 @@ static void preset(struct groove_preset *p, const struct part *v)
     p->data[209] = v->sends;
 }
 
-/* ---- Worship patterns -------------------------------------------------
- * Arp/lead degrees index the chord-tone table below; -1 is a rest.
- * Shapes favour root/5th/9th/3rd voicings, which read as "worship" rather
- * than the plain 1-3-5 triad climb that tends to sound cheesy. */
-static const int8_t arp_patterns[8][16] = {
-    [A_8THS]    = {0,-1,1,-1,3,-1,4,-1, 2,-1,1,-1,3,-1,4,-1},
-    [A_ROLL16]  = {0,1,3,4, 2,1,3,4, 0,1,3,4, 5,4,3,1},
-    [A_DOTTED]  = {0,-1,-1,3,-1,-1,4,-1, -1,1,-1,-1,3,-1,2,-1},
-    [A_BELLS]   = {3,-1,-1,-1,4,-1,-1,-1, 5,-1,-1,-1,4,-1,-1,-1},
-    [A_UPDOWN]  = {0,-1,1,-1,2,-1,3,-1, 4,-1,3,-1,2,-1,1,-1},
-    [A_SPARSE]  = {6,-1,-1,-1,-1,-1,4,-1, -1,-1,3,-1,-1,-1,-1,-1},
-    [A_PULSE16] = {2,2,2,2, 2,2,2,2, 2,2,2,2, 2,2,2,2},
-    [A_PAIRS]   = {3,-1,4,-1,3,-1,1,-1, 3,-1,4,-1,5,-1,4,-1},
+/* ---- Worship sequences -----------------------------------------------
+ * Degrees index the chord-tone table; -1 is a rest. A sequence is 16, 32 or
+ * 48 sixteenths long, so layers with different lengths drift against each
+ * other and realign every few bars without ever leaving the grid. Shapes
+ * favour root/5th/9th/10th over plain triad climbs. */
+enum { MAX_SEQ = 48 };
+struct sequence { uint8_t length, gate; int8_t degree[MAX_SEQ]; };
+#define R -1
+static const struct sequence sequences[SEQUENCES] = {
+    [S_DOTTED8]     = {16, 12, {0,R,R,3, R,R,4,R, R,1,R,R, 3,R,2,R}},
+    [S_ROLL3]       = {48,  7, {0,1,3, 0,1,4, 0,1,3, 5,4,3, 0,1,3, 0,1,4, 0,1,3, 5,4,3,
+                                0,1,3, 0,1,4, 0,1,3, 5,4,3, 0,1,3, 0,1,4, 2,4,5, 7,5,4}},
+    [S_STAIRS]      = {32,  8, {0,1,3,4, 2,3,5,4, 6,5,4,3, 2,1,3,1, 0,1,3,4, 2,4,5,7, 6,5,4,2, 3,1,2,R}},
+    [S_OCTAVES]     = {16,  6, {0,2,0,2, 1,5,1,5, 3,7,3,7, 4,8,4,2}},
+    [S_GALLOP]      = {16,  7, {0,R,2,3, 1,R,2,4, 0,R,2,3, 5,R,4,2}},
+    [S_SYNC]        = {32, 10, {0,R,R,1, R,R,3,R, 4,R,R,3, R,R,1,R, 2,R,R,1, R,R,3,R, 5,R,4,R, 3,R,R,R}},
+    [S_DOTTED_RISE] = {48, 13, {0,R,R,3,R,R,4,R,R,1,R,R,5,R,R,0, R,R,3,R,R,4,R,R,1,R,R,5,R,R,0,R,
+                                R,3,R,R,4,R,R,1,R,R,5,R,R,6,R,R}},
+    [S_PULSE16]     = {16,  5, {2,2,2,2, 2,2,2,6, 2,2,2,2, 2,2,3,6}},
+    [S_8THS]        = {16, 10, {0,R,1,R, 3,R,4,R, 2,R,1,R, 3,R,4,R}},
+    [S_BELLS]       = {32, 15, {3,R,R,R, 4,R,R,R, 5,R,R,R, 4,R,R,R, 3,R,R,R, 4,R,R,R, 7,R,R,R, 5,R,R,R}},
+    [S_SPARSE]      = {32, 15, {6,R,R,R, R,R,4,R, R,R,3,R, R,R,R,R, 7,R,R,R, R,R,5,R, R,R,8,R, R,R,R,R}},
+    [S_PAIRS]       = {16,  9, {3,R,4,R, 3,R,1,R, 3,R,4,R, 5,R,4,R}},
+    [S_CASCADE]     = {16,  6, {8,7,6,5, 4,3,2,1, 7,6,5,4, 3,2,1,0}},
+    [S_UPDOWN]      = {16, 10, {0,R,1,R, 2,R,3,R, 4,R,3,R, 2,R,1,R}},
 };
-static const uint8_t arp_gates[8] = {10, 7, 13, 15, 10, 15, 5, 9};
-/* Bass: 0 root, 1 fifth, 2 octave, -1 rest. */
-static const int8_t bass_patterns[4][16] = {
-    [B_DRONE]   = {0,-1,-1,-1,-1,-1,-1,-1, -1,-1,-1,-1,-1,-1,-1,-1},
-    [B_PULSE8]  = {0,-1,0,-1,0,-1,0,-1, 0,-1,0,-1,0,-1,0,-1},
-    [B_QUARTER] = {0,-1,-1,-1,0,-1,-1,-1, 0,-1,-1,-1,1,-1,-1,-1},
-    [B_HEART]   = {0,-1,-1,0,-1,-1,-1,-1, 0,-1,-1,0,-1,-1,-1,-1},
+/* Bass degrees: 0 root, 1 fifth, 2 octave. */
+static const struct sequence basses[BASSES] = {
+    [B_DRONE]   = {16, 15, {0,R,R,R, R,R,R,R, R,R,R,R, R,R,R,R}},
+    [B_PULSE8]  = {16,  6, {0,R,0,R, 0,R,0,R, 0,R,0,R, 0,R,0,R}},
+    [B_PULSE16] = {16,  4, {0,0,2,0, 0,0,2,0, 0,0,2,0, 0,2,1,0}},
+    [B_SYNC]    = {32,  6, {0,R,R,0, R,R,0,R, 2,R,R,0, R,R,1,R, 0,R,R,0, R,R,0,R, 2,R,1,R, 0,R,R,R}},
+    [B_HEART]   = {16, 11, {0,R,R,0, R,R,R,R, 0,R,R,0, R,R,R,R}},
+    [B_QUARTER] = {16, 11, {0,R,R,R, 0,R,R,R, 0,R,R,R, 1,R,R,R}},
+    [B_DOTTED]  = {16,  8, {0,R,R,0, R,R,0,R, R,0,R,R, 2,R,1,R}},
 };
+#undef R
 /* 808 kick (bit 0) and closed hat (bit 10) masks, read from the first 16th. */
 static const uint16_t beat_kick[3] = {[D_HEART] = 0x0909, [D_FLOOR] = 0x1111, [D_HALF] = 0x0401};
 static const uint16_t beat_hat[3]  = {[D_HEART] = 0x0000, [D_FLOOR] = 0x4444, [D_HALF] = 0x1111};
@@ -218,11 +241,12 @@ static const uint16_t beat_hat[3]  = {[D_HEART] = 0x0000, [D_FLOOR] = 0x4444, [D
 static const int8_t human[16] = {0,-6,3,-9,2,-4,5,-8,1,-7,4,-5,0,-3,6,-10};
 
 enum { MAJ, MIN, SUS2, SUS4, QUALITIES };
-static const uint8_t chord_tones[QUALITIES][7] = {
-    [MAJ]  = {0, 7, 12, 14, 16, 19, 24},
-    [MIN]  = {0, 7, 12, 14, 15, 19, 24},
-    [SUS2] = {0, 7, 12, 14, 19, 26, 24},
-    [SUS4] = {0, 7, 12, 14, 17, 19, 24},
+/* Degrees: R, 5, 8va, 9, 10th(3rd), 12th(5), 15ma, 16th(9), 17th(3rd). */
+static const uint8_t chord_tones[QUALITIES][9] = {
+    [MAJ]  = {0, 7, 12, 14, 16, 19, 24, 26, 28},
+    [MIN]  = {0, 7, 12, 14, 15, 19, 24, 26, 27},
+    [SUS2] = {0, 7, 12, 14, 14, 19, 24, 26, 26},
+    [SUS4] = {0, 7, 12, 14, 17, 19, 24, 26, 29},
 };
 /* Open pad voicings stored in custom chord slots 13..16. */
 static const uint8_t pad_chords[QUALITIES][8] = {
@@ -235,46 +259,56 @@ static unsigned accent(unsigned i) { return i % 4 == 0 ? 100U : i % 2 == 0 ? 86U
 /* Keep every layer in a comfortable register whatever the key. */
 static unsigned register_base(unsigned low, unsigned root) { return low + (root + 12U - low % 12U) % 12U; }
 
+/* Loop length of a layer in sixteenths (16, 32 or 48). */
+static unsigned layer_length(const struct scene *s, unsigned layer)
+{
+    const struct part *v = &s->part[layer];
+    if (v->role == BASS) return basses[s->pattern[layer]].length;
+    if (v->role == ARP || v->role == LEAD) return sequences[s->pattern[layer]].length;
+    return 16;
+}
 static void layer_cells(const struct scene *s, unsigned layer, unsigned root, unsigned quality,
                         struct groove_step cells[GROOVE_STEPS])
 {
     const struct part *v = &s->part[layer];
-    unsigned pattern = s->pattern[layer];
+    unsigned pattern = s->pattern[layer], length = layer_length(s, layer);
     memset(cells, 0, sizeof(struct groove_step) * GROOVE_STEPS);
-    for (unsigned i = 0; i < 16; ++i) {
+    for (unsigned i = 0; i < GROOVE_STEPS; ++i) {
         struct groove_step n = {0, 0, 0};
-        unsigned bit = 1U << i;
+        unsigned at = i % length, beat = at % 16, bit = 1U << beat;
         if (v->role == BEAT) {
             if (beat_kick[pattern] & bit) n.drums |= 1U;
             if (beat_hat[pattern] & bit) n.drums |= 1U << 10;
-            if (n.drums) n.velocity = (uint8_t)clamp_velocity(((n.drums & 1U) ? 96 : 46) + human[i] / 2);
+            if (n.drums) n.velocity = (uint8_t)clamp_velocity(((n.drums & 1U) ? 96 : 46) + human[beat] / 2);
         } else if (v->role == PAD) {
-            if (i == 0) {
+            if (beat == 0) {
                 n.note = (uint8_t)register_base(48, root);
                 n.velocity = 92;
                 n.drums = (uint16_t)((PAD_CHORD_SLOT + quality + 1U) | (15U << 5) | (1U << 12));
             }
         } else if (v->role == BASS) {
-            int d = bass_patterns[pattern][i];
+            const struct sequence *q = &basses[pattern];
+            int d = q->degree[at];
             if (d >= 0) {
                 static const uint8_t offset[3] = {0, 7, 12};
                 unsigned drone = pattern == B_DRONE;
                 n.note = (uint8_t)(register_base(40, root) + offset[d]);
-                n.velocity = (uint8_t)clamp_velocity(drone ? 96 : (int)accent(i) + human[i]);
-                n.drums = (uint16_t)(((drone ? 15U : pattern == B_PULSE8 ? 6U : 11U) << 5) | (drone << 12));
+                n.velocity = (uint8_t)clamp_velocity(drone ? 96 : (int)accent(beat) + human[beat]);
+                n.drums = (uint16_t)((q->gate << 5) | (drone << 12));
             }
-        } else { /* ARP and LEAD */
-            int d = arp_patterns[pattern][i];
+        } else { /* ARP and LEAD sequences */
+            const struct sequence *q = &sequences[pattern];
+            int d = q->degree[at];
             if (d >= 0) {
                 unsigned base = register_base(v->role == LEAD ? 67 : 55, root);
                 n.note = (uint8_t)(base + chord_tones[quality][d]);
-                int vel = (int)accent(i) + human[i];
-                if (v->role == LEAD) vel -= 14;
+                int vel = (int)accent(beat) + human[beat];
+                if (v->role == LEAD) vel -= 10;
                 n.velocity = (uint8_t)clamp_velocity(vel);
-                n.drums = (uint16_t)(arp_gates[pattern] << 5);
+                n.drums = (uint16_t)(q->gate << 5);
             }
         }
-        for (unsigned bar = 0; bar < 4; ++bar) cells[bar * 16 + i] = n;
+        cells[i] = n;
     }
 }
 
@@ -300,7 +334,7 @@ int groove_factory_build(unsigned index, struct groove_project *p)
         const struct part *v = t < LAYERS ? &s->part[t] : &empty;
         preset(&p->preset[t], v);
         if (t >= LAYERS) continue;
-        p->preset[t].sequence_pages = 1; /* one-bar loop: chord changes land fast */
+        p->preset[t].sequence_pages = (uint8_t)(layer_length(s, t) / 16U); /* 1/2/3 = 16/32/48 */
         layer_cells(s, t, s->root, MAJ, p->step[t]);
     }
     return groove_project_valid(p) ? 0 : GROOVE_PROJECT_INVALID;

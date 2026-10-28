@@ -18,6 +18,10 @@ enum {
     LUSH_WARM_BASS,   /* saw + sub, low filter */
     LUSH_SUB,         /* sine sub with a little warmth */
     LUSH_AIR_BELL,    /* bright string + octave sine shimmer */
+    LUSH_DETUNE_PLUCK,/* stereo unison pluck, wide detune */
+    LUSH_SUPERSAW,    /* stereo supersaw sequence voice */
+    LUSH_JUNO_ARP,    /* detuned pulse pair, Juno-style arp */
+    LUSH_DETUNE_BASS, /* two detuned saws, punchy sequenced bass */
     LUSH_PATCHES
 };
 

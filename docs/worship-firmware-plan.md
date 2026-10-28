@@ -28,7 +28,16 @@ Fork of M-VAVE's official **FM1 Open V14** (github.com/m-vave/fm1_open, GPLv3 + 
   - Own effects: Juno-style stereo chorus, Dattorro plate reverb (half rate), dark tempo-synced delay. All driven by the normal FX page (decay, delay time, feedback, level) and per-track sends.
   - DC blocker, reverb low cut, −4 dB bus trim with soft limiter. Scenes sit within about 4 dB of each other.
   - Memory: about 90 KB of delay/reverb/string buffers. Benchmark: about 700 cycles/sample on x86 for a busy scene. The device cost is unknown and must be measured.
-- Automated tests pass (43 checks). The native harness, analyzer and benchmark are in `tools/lush/`.
+- Automated tests pass (45 checks, including polymetric loop lengths and chord-tone correctness of every sequence after a chord change). The native harness, analyzer and benchmark are in `tools/lush/`.
+
+- **Sequence-first redesign** (Zach's feedback: "less pads, more cool sequences, arps, delays and more detuned stuff"):
+  - 14 sequence figures and 7 bass figures, 1–3 bars long. Highlights: dotted 8ths, rolling 3-over-4, staircase, octave run, gallop, syncopated lines, dotted rise (5-note cycle over dotted 8ths), 16th pulse, cascade.
+  - Layers loop at different lengths (e.g. 16/48/16/32), so the pattern keeps evolving while staying on the grid.
+  - Chord-tone range goes up to the 17th for octave jumps.
+  - Scenes are now two interlocking sequences + sequenced bass + beat. Only MORNING, SANCTUARY, QUIET PLACE and ALTAR CALL keep a quiet pad.
+  - New detuned patches: DETUNE PLUCK (stereo unison, ±19¢), SUPERSAW (stereo, ±27¢), JUNO ARP (detuned pulse pair + chorus), DETUNE BASS. Stereo unison runs two filters per voice (outer saws hard L/R).
+  - **Dual-tap delay:** left at the FX time (dotted 8th), right at 4/3 of it (quarter), cross-fed. Delay sends and feedback raised across the scenes.
+  - Busiest-case benchmark: about 1,120 cycles/sample on x86 (two stereo sequence layers plus a bass filling all 16 voices). Levers if the device is tight: a voice cap, 2-saw unison, half-rate chorus.
 
 **Not started yet:** sampled instruments (true acoustic realism), shimmer/compression, simple pattern controls, an always-visible key display, and building and flashing real firmware.
 

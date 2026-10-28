@@ -14,7 +14,8 @@ const render = (seconds, keep = true) => {
 };
 // Keys: 0 = F3. Each chord is pressed briefly; it latches after release.
 const KEYS = { E: [11, 15, 18], 'C#m': [8, 11, 15], A: [4, 8, 11], B: [6, 10, 13], 'F#m': [1, 4, 8], Am: [4, 7, 11], F: [0, 4, 7],
-               Esus2: [11, 13, 18], G: [2, 6, 9], Em: [11, 14, 18], C: [7, 11, 14], D: [9, 13, 16] };
+               Esus2: [11, 13, 18], G: [2, 6, 9], Em: [11, 14, 18], C: [7, 11, 14], D: [9, 13, 16],
+               Bm: [6, 9, 13], Ab: [3, 7, 10], Fm: [0, 3, 7], Db: [8, 12, 15], Eb: [10, 14, 17] };
 const chord = (name) => {
   for (const k of KEYS[name]) x.sim_control(1, k, 1);
   render(0.03); for (const k of KEYS[name]) x.sim_control(1, k, 0);
@@ -30,11 +31,12 @@ const scene = (slot, bpm, progression, barsEach) => {
   render(3);
 };
 x.sim_boot(1); render(0.5, false);
-scene(0, 72, ['E', 'C#m', 'A', 'B'], 2);       // DOTTED 8TH  - air pad, glass pluck, sub, air bell
-scene(1, 68, ['G', 'Em', 'C', 'D'], 2);        // OPEN HEAVEN - strings, bells, sub, harp
-scene(3, 64, ['A', 'F#m', 'D', 'E'], 2);       // STILL WATER - air pad, felt keys, sub, bell
-scene(7, 74, ['G', 'Em', 'C', 'D'], 2);        // HEARTBEAT   - air pad, felt pairs, warm bass, kick
-scene(12, 76, ['C', 'Am', 'F', 'G'], 2);       // CASCADE     - strings, harp roll, sub, glass pluck
+scene(0, 72, ['E', 'C#m', 'A', 'B'], 2);       // DOTTED 8TH  - Juno arp, detune pluck 3s, detune bass, bells
+scene(1, 76, ['G', 'Em', 'C', 'D'], 2);        // ROLLING 3S  - wide detune pluck rolling 3-over-4, bells, sub, heartbeat
+scene(2, 80, ['D', 'Bm', 'G', 'A'], 2);        // STAIRCASE   - supersaw stairs, harp dotted, syncopated bass
+scene(3, 84, ['A', 'F#m', 'D', 'E'], 2);       // OCTAVE RUN  - Juno octaves, glass sync, 16th bass, four on floor
+scene(12, 78, ['D', 'Bm', 'G', 'A'], 2);       // SYNC LINES  - Juno sync, detune pluck 3s, sync bass, half-time
+scene(15, 92, ['Ab', 'Fm', 'Db', 'Eb'], 2);    // NEON SKY    - supersaw octaves, Juno cascade, 16th bass
 
 let peak = 0; for (const b of out) for (const v of b) peak = Math.max(peak, Math.abs(v));
 const gain = peak > 0 ? 0.89 / peak : 1;

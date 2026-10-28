@@ -50,38 +50,49 @@ const playing = render(44100 * 4 / 128);
 check(playing.rms > 0.003, `scene plays audio (rms ${playing.rms.toFixed(4)}, peak ${playing.peak.toFixed(3)})`);
 check(playing.peak < 1.0, 'no hard clipping');
 
+// Loop lengths: DOTTED 8TH runs 16 / 48 / 16 / 32-step loops against each other.
+const st = mem().slice(x.sim_state(), x.sim_state() + 225);
+const lengths = [0, 1, 2, 3].map((t) => st[209 + t]);
+check(JSON.stringify(lengths) === JSON.stringify([16, 48, 16, 32]), `polymetric loop lengths ${lengths.join('/')}`);
+
+// Chord follow is tested on MORNING: harp ARP (track 1), felt LEAD, bass, pad (track 4).
+x.sim_preset(5); render(10);
+check(cstr(x.sim_project_name()).trim() === names[5], `loaded "${names[5]}" for chord-follow tests`);
 let p = exportProject();
-const before = [0, 1, 2].map((t) => cell(p, t, 0));
-console.log('      default:', before.map((c) => name(c.note)).join(' / '), '(pad / arp / bass, step 1)');
+const before = [0, 2, 3].map((t) => cell(p, t, 0));
+console.log('      default:', before.map((c) => name(c.note)).join(' / '), '(arp / bass / pad, step 1)');
 
 // 3. Hold A minor (A3 C4 E4 = keys 4, 7, 11 with F3 = key 0) on HOME.
 x.sim_open(0);
 for (const k of [4, 7, 11]) { x.sim_control(1, k, 1); render(3); }
 render(10);
 p = exportProject();
-const am = [0, 1, 2].map((t) => cell(p, t, 0));
+const am = [0, 2, 3].map((t) => cell(p, t, 0));
 console.log('      A minor:', am.map((c) => name(c.note)).join(' / '));
-check(am[0].note % 12 === 9 && (am[0].bits & 31) === 14, 'pad re-pitched to A with the open minor voicing');
-check(am[2].note % 12 === 9, 'bass follows to A');
-const arpNotes = [...Array(16).keys()].map((s) => cell(p, 1, s)).filter((c) => c.vel).map((c) => c.note % 12);
+check(am[2].note % 12 === 9 && (am[2].bits & 31) === 14, 'pad re-pitched to A with the open minor voicing');
+check(am[1].note % 12 === 9, 'bass follows to A');
+check(am[0].note % 12 === 9, 'arp starts on the new root');
+const arpNotes = [...Array(16).keys()].map((s) => cell(p, 0, s)).filter((c) => c.vel).map((c) => c.note % 12);
 check(arpNotes.includes(0) && !arpNotes.includes(1), 'arp uses the minor third (C), not C#');
+const leadNotes = [...Array(48).keys()].map((s) => cell(p, 1, s)).filter((c) => c.vel).map((c) => c.note % 12);
+check(leadNotes.length > 0 && leadNotes.every((n) => [9, 4, 11, 0].includes(n)), 'lead sequence stays on A-minor chord tones (A E B C)');
 
-// 4. Release: chord latches and the keys did not trigger notes on the pad track.
+// 4. Release: chord latches and the keys did not trigger notes.
 for (const k of [4, 7, 11]) x.sim_control(1, k, 0);
 render(10);
 p = exportProject();
-check(cell(p, 0, 0).note % 12 === 9, 'chord latches after release');
+check(cell(p, 3, 0).note % 12 === 9, 'chord latches after release');
 
 // 5. Single key D changes the root but keeps minor; then sus2 (G A D).
 x.sim_control(1, 9, 1); render(5); x.sim_control(1, 9, 0); render(5);
 p = exportProject();
-check(cell(p, 0, 0).note % 12 === 2 && (cell(p, 0, 0).bits & 31) === 14, 'single key D -> D minor (quality kept)');
+check(cell(p, 3, 0).note % 12 === 2 && (cell(p, 3, 0).bits & 31) === 14, 'single key D -> D minor (quality kept)');
 for (const k of [2, 4, 9]) x.sim_control(1, k, 1);
 render(5);
 for (const k of [2, 4, 9]) x.sim_control(1, k, 0);
 render(5);
 p = exportProject();
-check(cell(p, 0, 0).note % 12 === 7 && (cell(p, 0, 0).bits & 31) === 15, 'G A D -> G sus2');
+check(cell(p, 3, 0).note % 12 === 7 && (cell(p, 3, 0).bits & 31) === 15, 'G A D -> G sus2');
 const stillPlaying = render(44100 * 2 / 128);
 check(stillPlaying.rms > 0.003, `still playing after chord changes (rms ${stillPlaying.rms.toFixed(4)})`);
 
