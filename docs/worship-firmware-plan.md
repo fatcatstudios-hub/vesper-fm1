@@ -122,3 +122,9 @@ Fork of M-VAVE's official **FM1 Open V14** (github.com/m-vave/fm1_open, GPLv3 + 
 - Keys: chords only, or also a lead over the top?
 - After listening: which LUSH voices are closest, and which still miss?
 - Distribution: free or a paid Fat Cat Studios product?
+
+## Status (2026-10-28)
+
+- Firmware package built on Linux (`tools/fw/build.sh`): app 453,844 / 453,921 bytes, heap 123 KB, image checks pass. Not yet run on hardware.
+- Space cuts committed (86744b2 on `worship`); not pushed. Needs Zach's own GitHub repo, never m-vave/fm1_open.
+- Next: load FM1-WORSHIP.fwsc in the web emulator (https://joakimeriksson.github.io/fm1-emu/?mhz=240) via "Open .fwsc…", then check boot, all 16 scenes, chord follow and CPU load.
