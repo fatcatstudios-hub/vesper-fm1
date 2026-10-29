@@ -151,3 +151,34 @@ Fork of M-VAVE's official **FM1 Open V14** (github.com/m-vave/fm1_open, GPLv3 + 
   - SYNC LINES 57, SPIRIT MOVE 64, ALTAR CALL 63, NEON SKY 42
 - Lightest margin: ANTHEM 8THS, GLORY BUILD and NEON SKY (two stereo saw layers plus drums).
 - The emulator still drops audio on the host Mac in heavy scenes (host load above 100%). That is an emulator speed limit, not the firmware.
+
+## Session wrap (2026-10-29)
+
+Done today:
+- CPU fixes: mono basses, per-layer voice limits, 2 notes for supersaw and detune pluck.
+- Pause no longer leaves notes hanging.
+- Crystal theme and the orbit home screen.
+- 4-layer mixer, with sound names on the pages.
+- Linux-built updater page (FM1-WORSHIP-Updater.html) with the firmware and the V15 recovery image built in.
+- Flash headroom: 93 bytes.
+
+Zach's feedback:
+- Loves the orbit UI with the chord in the centre.
+- The scenes worked as rhythmic drones under his Nord piano.
+
+Next session (Zach's list):
+1. Deeper FX so sounds stop reading as DX7/D50, Microcosm-style:
+   - glitch, granular, stutter
+   - tape (wow, flutter, saturation, age)
+   - drive
+   - bit crush
+   - "cloud" shimmer: diffuse granular shimmer on top of the current octave shimmer
+2. Exact button and knob layout: which control does what, per page.
+3. Editing each of the four sounds per layer: which parameters, and on which knobs.
+
+Constraints to plan around:
+- Flash: 93 bytes free. New FX need space found first. Candidates:
+  - stock pages the worship build doesn't need (DX7 FM editor pages, tone editor for engines LUSH replaces)
+  - unused LUSH patch fields
+- CPU: scenes idle 37-66% in the emulator. New FX should run at half rate where possible, and share one bus (a send) rather than run per voice.
+- The connection to Zach's FM-1 from the updater page is still to be confirmed. Checklist given: open in Chrome; MIDI permission; Audio MIDI Setup; force flash if still on stock V15.
