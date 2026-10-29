@@ -5,6 +5,12 @@
 #ifndef VESPER_TEST
 #define VESPER_TEST 0
 #endif
+#ifndef VESPER_START_SCENE
+#define VESPER_START_SCENE VESPER_TEST /* not proven on hardware yet */
+#endif
+#ifndef VESPER_FAST_PAGES
+#define VESPER_FAST_PAGES VESPER_TEST /* not proven on hardware yet */
+#endif
 /* A TEST build (spare unit only) says so on its boot screen. */
 #if VESPER_TEST
 #define SHOWN_VERSION WORSHIP_VERSION " TEST"
@@ -3117,6 +3123,16 @@ void groove_screen_control(void)
     read_encoders(&controls, now, boundary);
     if (!apply_controls(&controls, now, &ble))
         return;
+#if VESPER_START_SCENE
+    /* Four seconds after power-on, with the boot screen gone, a unit that came
+     * up on anything but a VESPER scene loads scene 1 through the same path as
+     * the PRESETS knob. Once per power-up. */
+    static uint8_t launched;
+    if (!launched && !boot_active && now >= 4000U) {
+        launched = 1;
+        if (!worship_chord_root() && !preset_loaded) { preset_slot = 0; preset_bank = 1; (void)preset_load(0, now); }
+    }
+#endif
     /* Input changes do not wait for the animation timer. LCD work is bounded
      * separately and continues on later polls, even between animation frames. */
     if (now - frame_ms >= 33U || page != old_page || input_changed || saved_cache.shown_page == ~0U) {
@@ -3134,6 +3150,16 @@ void groove_screen_control(void)
             boot_started = now;
         }
     }
+#if VESPER_FAST_PAGES
+    /* Faster page changes: while bands are still waiting, ask for the next
+     * control pass now instead of at the next tick. Never during the boot
+     * screen, and capped so a repeating LCD error cannot keep the task busy. */
+    static unsigned hurry;
+    unsigned dirty = 0;
+    for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) dirty = 1;
+    if (!dirty) hurry = 0;
+    else if (!boot_active && hurry < 48U) { ++hurry; fm1_control_request(); }
+#endif
 }
 
 void groove_screen_mmc(unsigned command)
