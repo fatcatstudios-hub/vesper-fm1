@@ -205,6 +205,9 @@ enum { GROOVE_PROJECT_EMPTY = 1, GROOVE_PROJECT_INVALID = -7,
  * untouched. */
 int groove_project_capture(struct groove_project *p);
 int groove_project_valid(const struct groove_project *p);
+/* VESPER: carry LUSH voice edits inside saved / loaded projects. NULL = factory scene. */
+void vesper_project_store(struct groove_project *p);
+void vesper_project_loading(const struct groove_project *p);
 int groove_project_apply(const struct groove_project *p);
 /* Open engine: checkpoint only after allocation succeeds, before applying.
  * Optional on binary SDKs; callers linking those must use a weak reference. */

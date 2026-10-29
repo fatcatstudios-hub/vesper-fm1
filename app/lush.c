@@ -22,6 +22,7 @@
 #include "lush_tables.inc"
 #include "lush_sea_dqt.inc"
 #include "fm1_sea.h"
+#include <string.h>
 /* Phase increment for a MIDI note: the top octave (notes 120..131), shifted down. */
 static inline LUSH_HOT uint32_t note_inc(unsigned note)
 {
@@ -121,6 +122,10 @@ static struct {
     uint8_t pan_next;
 } layer[TRACKS];
 static uint8_t track_level[TRACKS]; /* live level per layer, for the home screen */
+/* VESPER voices: each layer plays an editable copy of its patch. */
+static struct patch voice_patch[TRACKS];
+_Static_assert(LUSH_VOICE_BYTES == 4 + sizeof(struct patch), "voice blob layout");
+static int8_t voice_octave[TRACKS];
 static volatile int32_t fx_decay = 26000, fx_feedback = 12000, fx_wet = 20000, fx_damp = 9000;
 static volatile uint32_t delay_q16 = 11025U << 16; /* half-rate samples, Q16 */
 static volatile uint32_t beat_inc = 0;    /* per-sample step of a 16-beat (4-bar) phase */
@@ -144,7 +149,94 @@ __attribute__((minsize)) void lush_layer(unsigned track, unsigned patch, unsigne
     layer[track].gain = (int32_t)(volume * volume * 2U); /* gentle taper, 127 ~ 0.98 */
     layer[track].reverb = (int32_t)((reverb > 15 ? 15 : reverb) * 2184U);
     layer[track].delay = (int32_t)((delay > 15 ? 15 : delay) * 2184U);
+    if (patch == LUSH_NONE) layer[track].patch = LUSH_NONE;
+    else if (layer[track].patch == LUSH_NONE) lush_voice_set(track, patch);
+}
+/* ---- VESPER voice editing (control task) ---- */
+__attribute__((minsize)) void lush_voice_set(unsigned track, unsigned patch)
+{
+    if (track >= TRACKS || patch == LUSH_NONE || patch >= LUSH_PATCHES) return;
+    lush_tables_build();
+    layer[track].patch = LUSH_NONE;   /* audio retires the old voices first */
+    voice_patch[track] = patches[patch];
+    voice_octave[track] = 0;
     layer[track].patch = (uint8_t)patch;
+}
+unsigned lush_voice_sound(unsigned track) { return track < TRACKS ? layer[track].patch : LUSH_NONE; }
+/* Parameter table: byte offset into struct patch, range. */
+#define PO(f) (uint8_t)__builtin_offsetof(struct patch, f)
+static const struct { uint8_t at; int8_t min, max; uint8_t kinds; } params[LUSH_PARAMS] = {
+    /* kinds: bit per ks type (1 synth, 2 string, 4 sample, 8 modal) */
+    [LP_CUTOFF] = {PO(cutoff), 0, 127, 7},     [LP_RESO] = {PO(resonance), 0, 120, 3},
+    [LP_ENV] = {PO(env_amount), -60, 60, 3},   [LP_DRIVE] = {PO(drive), 0, 127, 3},
+    [LP_SAW] = {PO(saw), 0, 127, 1},           [LP_PULSE] = {PO(pulse), 0, 127, 1},
+    [LP_SINE] = {PO(sine), 0, 127, 3},         [LP_NOISE] = {PO(noise), 0, 127, 1},
+    [LP_UNISON] = {PO(unison), 1, 3, 1},       [LP_DETUNE] = {PO(detune), 0, 40, 1},
+    [LP_PW] = {PO(pw), 0, 127, 1},             [LP_CHORUS] = {PO(chorus), 0, 1, 15},
+    [LP_A] = {PO(aenv[0]), 0, 127, 15},        [LP_D] = {PO(aenv[1]), 0, 127, 15},
+    [LP_S] = {PO(aenv[2]), 0, 127, 15},        [LP_R] = {PO(aenv[3]), 0, 127, 15},
+    [LP_FA] = {PO(fenv[0]), 0, 127, 3},        [LP_FD] = {PO(fenv[1]), 0, 127, 3},
+    [LP_FS] = {PO(fenv[2]), 0, 127, 3},        [LP_FR] = {PO(fenv[3]), 0, 127, 3},
+    [LP_RATE] = {PO(motion_div), 0, 7, 7},     [LP_MOTION] = {PO(motion), 0, 24, 7},
+    [LP_PAN] = {PO(pan_move), 0, 127, 15},     [LP_DRIFT] = {PO(drift), 0, 20, 3},
+    [LP_SPREAD] = {PO(spread), 0, 127, 15},    [LP_BRIGHT] = {PO(bright), 0, 127, 2},
+    [LP_DECAY] = {PO(decay), 0, 127, 2},       [LP_VELOCITY] = {PO(velocity), 0, 127, 15},
+    [LP_GAIN] = {PO(gain), 0, 127, 15},
+};
+int lush_param_applies(unsigned track, unsigned id)
+{
+    if (track >= TRACKS || layer[track].patch == LUSH_NONE) return 0;
+    if (id == LP_OCTAVE) return 1;
+    return id < LUSH_PARAMS && (params[id].kinds >> voice_patch[track].ks & 1U);
+}
+int lush_param_get(unsigned track, unsigned id)
+{
+    if (track >= TRACKS) return 0;
+    if (id == LP_OCTAVE) return voice_octave[track];
+    if (id >= LUSH_PARAMS) return 0;
+    const uint8_t *b = (const uint8_t *)&voice_patch[track] + params[id].at;
+    return params[id].min < 0 ? (int)(int8_t)*b : (int)*b;
+}
+__attribute__((minsize)) int lush_param_edit(unsigned track, unsigned id, int delta)
+{
+    if (!delta || !lush_param_applies(track, id)) return lush_param_get(track, id);
+    int lo = id == LP_OCTAVE ? -2 : params[id].min, hi = id == LP_OCTAVE ? 2 : params[id].max;
+    int v = lush_param_get(track, id) + delta;
+    v = v < lo ? lo : v > hi ? hi : v;
+    if (id == LP_OCTAVE) {
+        if (v != voice_octave[track]) { voice_octave[track] = (int8_t)v; lush_track_reset(track); }
+    } else ((uint8_t *)&voice_patch[track])[params[id].at] = (uint8_t)v;
+    return v;
+}
+/* Project storage: 'V', 1, sound, octave, then the patch bytes. */
+unsigned lush_voice_export(unsigned track, uint8_t *out)
+{
+    if (track >= TRACKS || layer[track].patch == LUSH_NONE) return 0;
+    out[0] = 'V'; out[1] = 1; out[2] = layer[track].patch; out[3] = (uint8_t)voice_octave[track];
+    memcpy(out + 4, &voice_patch[track], sizeof(struct patch));
+    return LUSH_VOICE_BYTES;
+}
+__attribute__((minsize)) int lush_voice_import(unsigned track, const uint8_t *in)
+{
+    if (track >= TRACKS || in[0] != 'V' || in[1] != 1 || in[2] == LUSH_NONE || in[2] >= LUSH_PATCHES) return -1;
+    lush_voice_set(track, in[2]);
+    layer[track].patch = LUSH_NONE;
+    struct patch edited, *v = &voice_patch[track];
+    memcpy(&edited, in + 4, sizeof edited);
+    /* Structural fields always come from the sound itself. */
+    edited.ks = v->ks; edited.slot = v->slot; edited.slots = v->slots; edited.modal = v->modal;
+    edited.formant = v->formant; edited.reverse = v->reverse; edited.stereo = v->stereo;
+    edited.sine_octave = v->sine_octave;
+    for (unsigned id = 0; id < LUSH_PARAMS; ++id) { /* clamp anything out of range */
+        uint8_t *b = (uint8_t *)&edited + params[id].at;
+        int x = params[id].min < 0 ? (int)(int8_t)*b : (int)*b;
+        if (x < params[id].min || x > params[id].max) *b = ((uint8_t *)v)[params[id].at];
+    }
+    *v = edited;
+    int8_t oct = (int8_t)in[3];
+    voice_octave[track] = oct < -2 || oct > 2 ? 0 : oct;
+    layer[track].patch = in[2];
+    return 0;
 }
 __attribute__((minsize)) void lush_effects(const uint8_t fx[4], unsigned delay_ticks, unsigned tempo, unsigned shimmer)
 {
@@ -417,7 +509,7 @@ static LUSH_CODE __attribute__((minsize)) struct voice *allocate(unsigned want_k
 /* Per note, not per sample: built for size. */
 static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsigned note, unsigned velocity, unsigned patch_id)
 {
-    const struct patch *p = &patches[patch_id];
+    const struct patch *p = &voice_patch[track];
     unsigned zone = 0, target = note;
     if (p->ks == 2) {
         /* Nearest sampled zone to the (transposed) note. */
@@ -533,10 +625,12 @@ static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsig
 __attribute__((minsize)) LUSH_CODE void lush_note(unsigned track, unsigned note, unsigned velocity)
 {
     if (track >= TRACKS || note > 127) return;
+    int shifted = (int)note + 12 * voice_octave[track];
+    note = shifted < 0 ? 0U : shifted > 127 ? 127U : (unsigned)shifted;
     unsigned patch_id = layer[track].patch;
     if (patch_id == LUSH_NONE) return;
     if (velocity) { start_voice(track, note, velocity, patch_id); return; }
-    if (patches[patch_id].reverse) return; /* a swell always lands on its beat */
+    if (voice_patch[track].reverse) return; /* a swell always lands on its beat */
     for (unsigned i = 0; i < VOICES; ++i) {
         struct voice *v = &voices[i];
         if (v->active && v->track == track && v->note == note && v->amp.stage != STAGE_RELEASE) {
@@ -610,7 +704,7 @@ static int32_t bus_dry[2 * N], bus_chorus[N], bus_reverb[N], bus_delay[N];
 
 static LUSH_CODE void render_voice(struct voice *v)
 {
-    const struct patch *p = &patches[v->patch];
+    const struct patch *p = &voice_patch[v->track];
     int32_t gain = (int32_t)(((int64_t)layer[v->track].gain * v->velocity) >> 15);
     gain = (gain * p->gain) >> 7;
     int32_t send_r = layer[v->track].reverb, send_d = layer[v->track].delay;
@@ -942,7 +1036,7 @@ LUSH_CODE void lush_render(int32_t *output)
             if (l > 127U) l = 127U;
             if (l > track_level[voices[i].track]) track_level[voices[i].track] = (uint8_t)l;
 #if FM1_HOST_TEST
-            ++lush_stat[patches[voices[i].patch].ks == 2 ? 1 : 0];
+            ++lush_stat[voice_patch[voices[i].track].ks == 2 ? 1 : 0];
 #endif
             render_voice(&voices[i]); voicing = 1;
         }

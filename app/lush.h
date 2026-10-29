@@ -41,6 +41,25 @@ const char *lush_track_name(unsigned track);
 unsigned lush_track_level(unsigned track);   /* 0..127, live */
 void lush_budget(unsigned voices_allowed);   /* control task: max overlapping synth voices */
 
+/* VESPER voice editing (control task). Each layer plays an editable copy of
+ * its sound; lush_voice_set picks the sound and resets the copy to its defaults. */
+enum {
+    LP_CUTOFF, LP_RESO, LP_ENV, LP_DRIVE, LP_SAW, LP_PULSE, LP_SINE, LP_NOISE,
+    LP_UNISON, LP_DETUNE, LP_PW, LP_CHORUS, LP_A, LP_D, LP_S, LP_R,
+    LP_FA, LP_FD, LP_FS, LP_FR, LP_RATE, LP_MOTION, LP_PAN, LP_DRIFT,
+    LP_SPREAD, LP_BRIGHT, LP_DECAY, LP_VELOCITY, LP_GAIN,
+    LUSH_PARAMS,
+    LP_OCTAVE = LUSH_PARAMS, /* -2..+2 octaves, kept beside the patch */
+    LUSH_VOICE_BYTES = 42
+};
+void lush_voice_set(unsigned track, unsigned patch);
+unsigned lush_voice_sound(unsigned track);
+int lush_param_applies(unsigned track, unsigned id);
+int lush_param_get(unsigned track, unsigned id);
+int lush_param_edit(unsigned track, unsigned id, int delta);  /* returns the new value */
+unsigned lush_voice_export(unsigned track, uint8_t *out);     /* LUSH_VOICE_BYTES, or 0 */
+int lush_voice_import(unsigned track, const uint8_t *in);
+
 /* Control task, from the sample bank loader: bind one of the eight shared
  * sample slots (memory-mapped SEA5 data, 32 kHz). NULL data unbinds; voices
  * playing that slot stop at their next decode. The zone's root note is read

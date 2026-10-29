@@ -564,8 +564,10 @@ int groove_project_save_slot(unsigned slot)
     }
     record.header.magic = PROJECT_MAGIC;
     r = groove_arrangement_capture(&record.project);
-    if (!r)
+    if (!r) {
+        vesper_project_store(&record.project);
         r = write_record(slot, generation, saved);
+    }
     if (!r) {
         ++project_revision;
         r = tuning_save(slot);
@@ -598,6 +600,7 @@ int groove_project_load_slot(unsigned slot)
         r = tuning_read(slot, key, tables);
     }
     if (!r) {
+        vesper_project_loading(&record.project);
         r = apply_edit(&record.project, 0x82000U + slot);
         if (!r && groove_tuning_apply)
             (void)groove_arrangement_tuning_apply(tables);
@@ -636,6 +639,7 @@ int groove_project_import(const uint8_t *bytes, unsigned length)
     }
     if (!groove_project_valid(&record.project))
         return GROOVE_PROJECT_INVALID;
+    vesper_project_loading(&record.project);
     int r = apply_edit(&record.project, 0x83000U);
     if (!r) {
         if (tuned && groove_tuning_apply)
@@ -654,6 +658,7 @@ int groove_project_export(uint8_t *bytes, unsigned capacity)
     int r = groove_arrangement_capture(&record.project);
     if (r)
         return r;
+    vesper_project_store(&record.project);
     memcpy(bytes, &record.project, sizeof record.project);
     struct tuning_block block;
     if (capacity >= GROOVE_PROJECT_TUNED_BYTES) {
@@ -669,6 +674,7 @@ int groove_factory_load(unsigned index)
 {
     int r = groove_factory_build(index, &record.project);
     if (r) return r;
+    vesper_project_loading(NULL);
     r = apply_edit(&record.project, 0x84000U + index);
     if (!r) { tuning_zero(); groove_project_touch(); }
     return r;

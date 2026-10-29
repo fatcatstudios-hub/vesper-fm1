@@ -159,7 +159,9 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
 }
 /* Eight tracks stay visible on HOME. SEQ maps the sixteen white keys to one
  * quarter of the 64-step pattern. All drawing and edits run on app_control. */
-enum { OVERVIEW, STEPS, FM_EDIT, FM_ENV, FM_LFO, TONE_EDIT, MIX, BLE, PROJECT, NAME, EFFECTS, SOURCE, ACTIONS, STEP_EDIT, RHYTHM, FM_QUICK, PRESET_BROWSER, ARP_EDIT, STARTUP };
+enum { OVERVIEW, STEPS, FM_EDIT, FM_ENV, FM_LFO, TONE_EDIT, MIX, BLE, PROJECT, NAME, EFFECTS, SOURCE, ACTIONS, STEP_EDIT, RHYTHM, FM_QUICK, PRESET_BROWSER, ARP_EDIT,
+       V_EDIT, V_ENV, V_LFO, V_SCOPE, /* VESPER voice pages and the master scope */
+       STARTUP };
 enum { OCT_DOWN, OCT_UP, FX, SCL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
 #define BUTTON(b) (1U << (b))
 /* Track prism: ice, aqua, mint, seafoam, periwinkle, lavender, pearl, rose quartz. */
@@ -215,7 +217,7 @@ static unsigned step_first(const struct groove_view *v)
 static uint8_t operator_page[GROOVE_TRACKS][8], operator_selected[GROOVE_TRACKS],
     lfo_page[GROOVE_TRACKS];
 static uint8_t tone_pages[GROOVE_TRACKS][GROOVE_PADS + 1], drum_parts[GROOVE_TRACKS];
-static uint32_t operator_time[6], operator_held, operator_long;
+static __attribute__((unused)) uint32_t operator_time[6], operator_held, operator_long;
 static uint8_t key_note[27], key_track[27], retry_reset;
 static uint32_t previous_buttons, previous_keys, blocked_keys, frame_ms, glo_ms;
 static uint32_t project_keys; /* Held Play pitches across a project remapping. */
@@ -277,6 +279,7 @@ struct draw_cache {
     uint32_t header_cache, title_cache, middle_cache, hint_cache, hold_cache, seq_cache;
     uint32_t foot_cache[4], row_cache[8], middle_shape, cell_cache[8][16], tile_cache[16];
     unsigned meter_cache[8];
+    uint8_t scope_lo[224], scope_hi[224];
 };
 static struct draw_cache saved_cache, band_cache, *cache = &saved_cache;
 static uint32_t led_cache;
@@ -1469,6 +1472,198 @@ static __attribute__((noinline, cold, minsize)) void boot_draw(void)
         cache->hint_cache = letters;
     }
 }
+static void select_track(int delta);
+/* ---- VESPER pages: four voices, ALGORITHM picks one -------------------
+ * EDIT steps SOUND / TONE / OSC / VOICE, ENV shows amp or filter ADSR
+ * (SELECT switches), LFO the tempo-locked motion. K1-K4 edit what the footer
+ * shows; values belong to the focused voice and are saved with the project. */
+enum { VP_SOUND = 100, VP_LEVEL, VP_NONE };
+static unsigned v_edit, v_filter_env;
+static uint8_t frame_scope_lo[224], frame_scope_hi[224];
+static __attribute__((noinline)) const uint8_t *vesper_params(unsigned visible)
+{
+    static const uint8_t pages[][4] = {
+        {VP_SOUND, LP_OCTAVE, VP_LEVEL, LP_SPREAD},   /* EDIT 1 SOUND */
+        {LP_CUTOFF, LP_RESO, LP_ENV, LP_DRIVE},        /* EDIT 2 TONE */
+        {LP_SAW, LP_PULSE, LP_SINE, LP_NOISE},         /* EDIT 3 OSC */
+        {LP_UNISON, LP_DETUNE, LP_PW, LP_CHORUS},      /* EDIT 4 VOICE */
+        {LP_CUTOFF, LP_BRIGHT, LP_DECAY, LP_DRIVE},    /* EDIT 2 for plucked strings */
+        {LP_CUTOFF, LP_VELOCITY, LP_GAIN, LP_CHORUS},  /* EDIT 2 for samples and modal */
+        {LP_A, LP_D, LP_S, LP_R}, {LP_FA, LP_FD, LP_FS, LP_FR},
+        {LP_RATE, LP_MOTION, LP_PAN, LP_DRIFT},
+    };
+    if (visible == V_ENV) return pages[6 + v_filter_env];
+    if (visible == V_LFO) return pages[8];
+    if (v_edit == 1) {
+        unsigned ks = lush_param_applies(track, LP_BRIGHT) ? 1U : lush_param_applies(track, LP_SAW) ? 0U : 2U;
+        return pages[ks ? 3U + ks : 1U];
+    }
+    return pages[v_edit];
+}
+static __attribute__((noinline)) const char *vesper_label(unsigned id)
+{
+    static const char *const names[LUSH_PARAMS + 1] = {
+        "CUTOFF", "RESO", "ENV AMT", "DRIVE", "SAW", "PULSE", "SINE", "NOISE",
+        "UNISON", "DETUNE", "PW", "CHORUS", "ATTACK", "DECAY", "SUSTAIN", "RELEASE",
+        "F ATTACK", "F DECAY", "F SUST", "F REL", "RATE", "FILTER", "AUTOPAN", "DRIFT",
+        "WIDTH", "BRIGHT", "RING", "VEL", "GAIN", "OCTAVE"};
+    return id == VP_SOUND ? "SOUND" : id == VP_LEVEL ? "LEVEL" : id <= LUSH_PARAMS ? names[id] : "";
+}
+static __attribute__((noinline)) void vesper_value(unsigned id, char out[12])
+{
+    static const char *const rates[8] = {"OFF", "1/16", "1/8", "1/4", "1/2", "1BAR", "2BAR", "4BAR"};
+    if (id == VP_SOUND) {
+        const char *name = lush_track_name(track);
+        unsigned n = 0;
+        for (; name && name[n] && name[n] != ' ' && n < 8; ++n) out[n] = name[n];
+        out[n] = 0;
+        return;
+    }
+    if (id == VP_LEVEL) { decimal(out, frame_views[track].volume, 1); return; }
+    if (!lush_param_applies(track, id)) { strcpy(out, "--"); return; }
+    int v = lush_param_get(track, id);
+    if (id == LP_RATE) strcpy(out, rates[v & 7]);
+    else if (id == LP_CHORUS) strcpy(out, v ? "ON" : "OFF");
+    else {
+        char *at = out;
+        if ((id == LP_OCTAVE || id == LP_ENV) && v > 0) *at++ = '+';
+        decimal(at, v, 1);
+    }
+}
+/* 0..64 bar height for the knob's current value. */
+static unsigned vesper_bar(unsigned id)
+{
+    static const uint8_t span[LUSH_PARAMS + 1] = {127,120,120,127,127,127,127,127, 3,40,127,1, 127,127,127,127,
+        127,127,127,127, 7,24,127,20, 127,127,127,127,127, 4};
+    if (id == VP_SOUND) return 64;
+    if (id == VP_LEVEL) return frame_views[track].volume / 2U;
+    if (!lush_param_applies(track, id)) return 0;
+    int v = lush_param_get(track, id) + (id == LP_ENV ? 60 : id == LP_OCTAVE ? 2 : 0);
+    return (unsigned)clamp(v * 64 / span[id], 0, 64);
+}
+static __attribute__((noinline)) void vesper_page_draw(unsigned visible)
+{
+    static const char *const edit_titles[4] = {"SOUND", "TONE", "OSC", "VOICE"};
+    const char *title = visible == V_EDIT ? edit_titles[v_edit] : visible == V_ENV ? (v_filter_env ? "FILTER ENV" : "AMP ENV")
+                      : visible == V_LFO ? "MOTION" : "MASTER SCOPE";
+    uint32_t sig = signature(visible * 64U + v_edit * 8U + track, title, (unsigned)strlen(title));
+    for (unsigned t = 0; t < 4; ++t) sig = sig * 31U + (uint32_t)(uintptr_t)lush_track_name(t);
+    if (cache->title_cache != sig) {
+        cache->title_cache = sig;
+        paint_fill(0, 32, 240, 62, BACK);
+        text(8, 36, visible == V_EDIT ? "EDIT" : visible == V_ENV ? "ENV" : visible == V_LFO ? "LFO" : "HOME",
+             1, DIM, BACK);
+        text(40, 34, title, 2, ACCENT, BACK);
+        if (visible == V_EDIT)
+            for (unsigned i = 0; i < 4; ++i) diamond(196 + 11 * (int)i, 41, i == v_edit ? 3 : 2, i == v_edit ? TEXT : DIM);
+        if (visible != V_SCOPE)
+            for (unsigned t = 0; t < 4; ++t) { /* voice chips: ALGORITHM picks */
+                unsigned x = 8 + 57 * t, on = t == track;
+                const char *name = lush_track_name(t);
+                char word[9] = {0};
+                for (unsigned n = 0; name && name[n] && name[n] != ' ' && n < 8; ++n) word[n] = name[n];
+                paint_fill(x, 58, 53, 30, on ? PANEL : BACK);
+                paint_fill(x, 58, 53, 2, on ? colors[t] : DIM);
+                number(x + 4, 64, (int)t + 1, 1, 1, on ? TEXT : DIM, on ? PANEL : BACK);
+                text(x + 4, 76, word, 1, on ? colors[t] : DIM, on ? PANEL : BACK);
+            }
+    }
+    if (visible == V_SCOPE) {
+        if (paint_rendering && (paint_top >= 186 || paint_top + PAINT_ROWS <= 56)) return;
+        for (unsigned x = 0; x < 224; ++x) {
+            if (cache->scope_lo[x] == frame_scope_lo[x] && cache->scope_hi[x] == frame_scope_hi[x]) continue;
+            cache->scope_lo[x] = frame_scope_lo[x]; cache->scope_hi[x] = frame_scope_hi[x];
+            paint_fill(8 + x, 58, 1, 126, 0x0863);
+            if (!(x & 7U)) paint_fill(8 + x, 121, 1, 1, DIM);
+            paint_fill(8 + x, frame_scope_lo[x], 1, (unsigned)(frame_scope_hi[x] - frame_scope_lo[x] + 1), ACCENT);
+        }
+        return;
+    }
+    const uint8_t *ids = vesper_params(visible);
+    if (!paint_rendering || (paint_top < 190 && paint_top + PAINT_ROWS > 96)) {
+        uint32_t shape = 0;
+        for (unsigned c = 0; c < 4; ++c) shape = shape * 67U + vesper_bar(ids[c]);
+        shape = shape * 7U + visible;
+        if (cache->middle_cache != shape) {
+            cache->middle_cache = shape;
+            paint_fill(0, 96, 240, 94, BACK);
+            if (visible == V_ENV && lush_param_applies(track, ids[0])) {
+                /* The envelope's shape: attack, decay to sustain, hold, release. */
+                unsigned a = vesper_bar(ids[0]), d = vesper_bar(ids[1]), sus = vesper_bar(ids[2]), r = vesper_bar(ids[3]);
+                unsigned xa = 12 + a, xd = xa + d, xs = xd + 40, xr = xs + r, ys = 184 - sus * 80U / 64U;
+                for (unsigned x = 12; x <= xr && x < 232; ++x) {
+                    unsigned y = x <= xa ? 184 - (x - 12) * 80U / (a ? a : 1U)
+                               : x <= xd ? 104 + (x - xa) * (ys - 104) / (d ? d : 1U)
+                               : x <= xs ? ys : ys + (x - xs) * (184 - ys) / (r ? r : 1U);
+                    paint_fill(x, y, 1, 185 - y, PANEL);
+                    paint_fill(x, y, 1, 2, colors[track]);
+                }
+            } else
+                for (unsigned c = 0; c < 4; ++c) {
+                    unsigned h = vesper_bar(ids[c]), x = 6 + 59 * c;
+                    paint_fill(x, 120, 54, 66, PANEL);
+                    if (h) paint_fill(x, 186 - h, 54, h, colors[track]);
+                }
+        }
+    }
+    if (paint_rendering && paint_top + PAINT_ROWS <= 190) return;
+    for (unsigned c = 0; c < 4; ++c) {
+        char value[12];
+        vesper_value(ids[c], value);
+        knob(c, vesper_label(ids[c]), value, lush_param_applies(track, ids[c]) || ids[c] >= VP_SOUND ? colors[track] : DIM);
+    }
+    const char *hint = notice ? notice : visible == V_EDIT ? "ALGO VOICE  EDIT NEXT PAGE"
+                     : visible == V_ENV ? "ALGO VOICE  SELECT AMP/FILTER" : "ALGO VOICE  PRESETS SCENE";
+    uint32_t h = signature(0, hint, (unsigned)strlen(hint));
+    if (cache->hint_cache != h) {
+        cache->hint_cache = h;
+        paint_fill(0, 229, 240, 11, BACK);
+        text(8, 231, hint, 1, DIM, BACK);
+    }
+}
+/* Control task: ALGORITHM focuses a voice, K1-K4 edit, SELECT pages within. */
+static void vesper_controls(const struct fm1_controls *controls)
+{
+    if (controls->encoders[1]) select_track(controls->encoders[1]);
+    if (page == V_SCOPE) return;
+    if (page == V_ENV && controls->encoders[0]) v_filter_env = controls->encoders[0] > 0;
+    if (page == V_EDIT && controls->encoders[0])
+        v_edit = (unsigned)clamp((int)v_edit + controls->encoders[0], 0, 3);
+    const uint8_t *ids = vesper_params(page);
+    for (unsigned c = 0; c < 4; ++c) {
+        int delta = controls->encoders[2 + c];
+        if (!delta) continue;
+        if (ids[c] == VP_SOUND) {
+            unsigned sound = lush_voice_sound(track);
+            if (sound != LUSH_NONE)
+                lush_voice_set(track, (unsigned)((int)sound - 1 + delta % (LUSH_PATCHES - 1) + LUSH_PATCHES - 1) % (LUSH_PATCHES - 1) + 1U);
+        } else if (ids[c] == VP_LEVEL) groove_control_edit(track, 0, delta, 0);
+        else (void)lush_param_edit(track, ids[c], delta);
+        groove_project_touch();
+    }
+}
+/* Audio tap from the output stage: last 256 mono samples at 22 kHz. */
+extern int16_t vesper_scope[256];
+extern volatile uint8_t vesper_scope_at;
+static void vesper_scope_frame(void)
+{
+    int16_t s[256];
+    unsigned at = vesper_scope_at;
+    for (unsigned i = 0; i < 256; ++i) s[i] = vesper_scope[(at + i) & 255U];
+    unsigned start = 0, peak = 1;
+    for (unsigned i = 1; i < 32; ++i) if (s[i - 1] < 0 && s[i] >= 0) { start = i; break; }
+    for (unsigned i = 0; i < 224; ++i) { unsigned m = (unsigned)(s[start + i] < 0 ? -s[start + i] : s[start + i]); if (m > peak) peak = m; }
+    static unsigned gain_peak = 4000;
+    gain_peak = peak > gain_peak ? peak : gain_peak - (gain_peak >> 4) + 1U;
+    int prev = 121 - (int)(s[start] * 60 / (int)gain_peak);
+    for (unsigned x = 0; x < 224; ++x) {
+        int y = 121 - (int)(s[start + x] * 60 / (int)gain_peak);
+        y = clamp(y, 59, 183);
+        frame_scope_lo[x] = (uint8_t)(y < prev ? y : prev);
+        frame_scope_hi[x] = (uint8_t)(y < prev ? prev : y);
+        prev = y;
+    }
+}
 static void draw_page_body(const struct fm1_ble_status *ble)
 {
     unsigned visible = boot_active ? STARTUP : glo_down && glo_used ? MIX : page;
@@ -1482,6 +1677,7 @@ static void draw_page_body(const struct fm1_ble_status *ble)
         memset(cache->cell_cache, 0xff, sizeof cache->cell_cache);
         memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
         memset(cache->meter_cache, 0xff, sizeof cache->meter_cache);
+        memset(cache->scope_lo, 0xff, sizeof cache->scope_lo);
         if (visible == PROJECT || visible == PRESET_BROWSER)
             text(8, 8, visible == PROJECT ? "SAVE PROJECT" : "PRESETS", 2, ACCENT, BACK);
     }
@@ -1505,6 +1701,10 @@ static void draw_page_body(const struct fm1_ble_status *ble)
     (void)ble;
 #endif
     header(v);
+    if (visible >= V_EDIT) {
+        vesper_page_draw(visible);
+        return;
+    }
     if (visible >= SOURCE) {
         edit_page_draw(visible);
         return;
@@ -1761,6 +1961,7 @@ static void draw(const struct fm1_ble_status *ble)
     }
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
         groove_get_view(t, cursor, &frame_views[t]);
+    if (visible == V_SCOPE) vesper_scope_frame();
     if (visible == STEPS) {
         unsigned first = step_first(&frame_views[track]);
         for (unsigned i = 0; i < 16; ++i) {
@@ -2078,6 +2279,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     }
     /* Keep the original HOME+PRESETS shortcut, including after HOME opens
      * the browser. A source replacement still requires an explicit SAVE. */
+#if !WORSHIP_SLIM
     if ((controls->buttons & BUTTON(HOME)) && controls->encoders[6] &&
         !(controls->buttons & BUTTON(PLAY))) {
         source_preview = (unsigned)((int)groove_source_type(track) +
@@ -2085,6 +2287,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         page = SOURCE; source_result = 0;
         goto controls_done;
     }
+#endif
     if ((controls->buttons & (BUTTON(SEQ) | BUTTON(EDIT))) == (BUTTON(SEQ) | BUTTON(EDIT)) &&
         (pressed & (BUTTON(SEQ) | BUTTON(EDIT)))) {
         if (!release_keys()) return 0;
@@ -2108,6 +2311,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         blocked_keys |= controls->keys;
         if (tapped) page = page == MIX ? music_page : MIX;
     }
+#if !WORSHIP_SLIM
     if ((controls->buttons & (BUTTON(EDIT) | BUTTON(REC))) == (BUTTON(EDIT) | BUTTON(REC)) &&
         (pressed & (BUTTON(EDIT) | BUTTON(REC))) && groove_source_type(track) == GROOVE_DX7) {
         writing = rec_before_press;
@@ -2115,9 +2319,29 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         page = NAME; name_cursor = 0;
         goto controls_done;
     }
+#endif
     if (pressed & (BUTTON(HOME) | BUTTON(SEQ) | BUTTON(FX) | BUTTON(SCL) |
                    BUTTON(EDIT) | BUTTON(ENV) | BUTTON(LFO))) {
         glo_down = glo_used = 0;
+#if WORSHIP_SLIM
+        /* VESPER: HOME cycles orbit -> mixer -> scope; EDIT steps its pages;
+         * ENV and LFO open the focused voice's pages. SCL is reserved for OK. */
+        if (pressed & BUTTON(HOME)) {
+            if (page == ACTIONS && action_confirm) action_confirm = 0;
+            else page = page == OVERVIEW ? MIX : page == MIX ? V_SCOPE : OVERVIEW;
+            goto controls_done;
+        }
+        if (pressed & BUTTON(EDIT)) {
+            v_edit = page == V_EDIT ? (v_edit + 1U) % 4U : 0U;
+            page = V_EDIT; goto controls_done;
+        }
+        if (pressed & BUTTON(ENV)) {
+            if (page == V_ENV) v_filter_env ^= 1U;
+            page = V_ENV; goto controls_done;
+        }
+        if (pressed & BUTTON(LFO)) { page = V_LFO; goto controls_done; }
+        if (pressed & BUTTON(SCL)) goto controls_done;
+#endif
         if (pressed & BUTTON(HOME)) {
             if (page == ACTIONS && action_confirm) action_confirm = 0;
             else if (page == BLE && ble_forget == 1) ble_forget = 0;
@@ -2129,6 +2353,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         } else if (pressed & BUTTON(FX)) {
             if (page != EFFECTS) effects_page = 0;
             open_subpage(EFFECTS);
+#if !WORSHIP_SLIM
         } else if (pressed & BUTTON(SCL)) {
             if (groove_source_type(track) == GROOVE_DX7) {
                 op = operator_selected[track] < 6 ? operator_selected[track] : 0;
@@ -2150,14 +2375,19 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             if (groove_pad_count(track)) drum_parts[track] = (uint8_t)drum;
             open_subpage(FM_ENV);
         } else open_subpage(FM_LFO);
+#else
+        }
+#endif
         goto controls_done;
     }
+#if !WORSHIP_SLIM
     if (edit_down && !edit_long && now - edit_ms >= 600U &&
         !(controls->buttons & (BUTTON(SEQ) | BUTTON(REC) | BUTTON(HOME)))) {
         edit_long = advanced_edit = 1;
         page = groove_source_type(track) == GROOVE_DX7 ? FM_EDIT : TONE_EDIT;
         goto controls_done;
     }
+#endif
     if (arp_tap) {
         if (!release_keys()) return 0;
         blocked_keys |= controls->keys;
@@ -2200,7 +2430,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 groove_mix_toggle(i & 7U, i >= 8);
         goto controls_done;
     }
-    if (page == OVERVIEW && !glo_down && controls->encoders[6]) {
+    if ((page == OVERVIEW || page == MIX || page >= V_EDIT) && !glo_down && controls->encoders[6]) {
         int current = preset_loaded ? (int)preset_current_slot : controls->encoders[6] > 0 ? -1 : GROOVE_PROJECT_SLOTS;
         unsigned slot = (unsigned)clamp(current + controls->encoders[6],
                                         0, GROOVE_PROJECT_SLOTS - 1);
@@ -2235,6 +2465,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         }
         goto controls_done;
     }
+#if !WORSHIP_SLIM
     if (page == SOURCE) {
         int delta = controls->encoders[0] + controls->encoders[1] + controls->encoders[3] + controls->encoders[6];
         source_preview = (unsigned)((int)source_preview + delta % GROOVE_SOURCES + GROOVE_SOURCES) % GROOVE_SOURCES;
@@ -2249,6 +2480,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         }
         goto controls_done;
     }
+#endif
     if (page == ACTIONS) {
         int move = controls->encoders[6] + controls->encoders[3];
         int paging = !!(pressed & BUTTON(OCT_UP)) - !!(pressed & BUTTON(OCT_DOWN));
@@ -2313,7 +2545,9 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         }
         goto controls_done;
     }
-    if (page == PROJECT) {
+    if (page >= V_EDIT) {
+        vesper_controls(controls);
+    } else if (page == PROJECT) {
         if (old_page == PROJECT) {
             if (controls->encoders[0] || controls->encoders[6]) {
                 project_slot = (unsigned)clamp((int)project_slot + controls->encoders[0] + controls->encoders[6], 0, GROOVE_PROJECT_SLOTS - 1);
@@ -2417,6 +2651,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                     if (controls->encoders[5]) groove_tempo_edit(controls->encoders[5]);
                     goto controls_done;
                 }
+#if !WORSHIP_SLIM
                 if (page == OVERVIEW && (controls->encoders[1] || controls->encoders[3])) {
                     /* Type and timbre are separate controls. Finish old note-offs
                      * before replacing the instance; held keys wait for release. */
@@ -2433,6 +2668,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                     operator_held = operator_long = 0;
                     goto controls_done;
                 }
+#endif
                 int oct_delta = (int)((pressed >> OCT_UP) & 1U) - (int)((pressed >> OCT_DOWN) & 1U);
                 if (page == STEPS) {
                     unsigned next = (unsigned)clamp((int)seq_page + controls->encoders[1], 0, 7);
@@ -2479,6 +2715,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                             notice = "RANGE / GATE FOR MELODIC TRACKS"; notice_until = now + 2000U;
                         } else groove_arp_edit(track, i, controls->encoders[2 + i]);
                     }
+#if !WORSHIP_SLIM /* DX7 naming and quick edit: not in VESPER */
                 } else if (page == NAME) {
                     name_cursor = (unsigned)clamp((int)name_cursor + controls->encoders[0], 0, 9);
                     if (controls->encoders[2]) {
@@ -2491,6 +2728,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                     static const uint8_t parameters[] = {134, 135, 144};
                     for (unsigned i = 0; i < 3; ++i) groove_fm_edit(track, parameters[i], controls->encoders[2 + i]);
                     groove_control_edit(track, 0, controls->encoders[5], 0);
+#endif
                 } else if (page == EFFECTS) {
                     unsigned next = (unsigned)clamp((int)effects_page + controls->encoders[6], 0, 2);
                     if (next != effects_page) { effects_page = next; cache->shown_page = ~0U; }
@@ -2508,6 +2746,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                         groove_control_edit(track, 0, controls->encoders[4], 0);
                         groove_effects_edit(3, controls->encoders[5]);
                     }
+#if !WORSHIP_SLIM /* stock tone / DX7 editors: VESPER pages replace them */
                 } else if (page == FM_LFO && groove_source_type(track) != GROOVE_DX7) {
                     for (unsigned i = 0; i < 4; ++i)
                         groove_lfo_edit(track, i, i < 2 ? fm_encoder_delta(2 + i, controls->encoders[2 + i]) : controls->encoders[2 + i]);
@@ -2596,6 +2835,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                                 groove_fm_edit(track, fm_parameter(col),
                                                fm_encoder_delta(2 + col, controls->encoders[2 + col]));
                         }
+#endif
                 } else if (page != STEPS || !seq_page) {
                     if (page == OVERVIEW) {
                         if (controls->encoders[4]) {

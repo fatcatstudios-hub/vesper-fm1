@@ -502,10 +502,38 @@ static void overload_guard(void)
         lush_budget(++budget);
     }
 }
+/* VESPER voice edits travel inside the project: LUSH layers park a silent
+ * PSG whose preset data beyond its four parameters is otherwise unused. */
+static uint8_t pending[LAYERS][LUSH_VOICE_BYTES], pending_ok, loads, loads_seen = 0xff;
+static int8_t voice_scene = -2;
+void vesper_project_store(struct groove_project *p)
+{
+    for (unsigned t = 0; t < LAYERS; ++t)
+        if (p->preset[t].type == GROOVE_PSG) (void)lush_voice_export(t, p->preset[t].data + 4);
+}
+void vesper_project_loading(const struct groove_project *p)
+{
+    pending_ok = 0; ++loads;
+    for (unsigned t = 0; p && t < LAYERS; ++t)
+        if (p->preset[t].type == GROOVE_PSG && p->preset[t].data[4] == 'V') {
+            memcpy(pending[t], p->preset[t].data + 4, LUSH_VOICE_BYTES);
+            pending_ok |= (uint8_t)(1U << t);
+        }
+}
 void worship_poll(void)
 {
     overload_guard();
     int scene = active_scene();
+    if (scene != voice_scene || loads != loads_seen) {
+        /* New scene or project: stored voice edits, else the scene's sounds. */
+        voice_scene = (int8_t)scene; loads_seen = loads;
+        for (unsigned t = 0; scene >= 0 && t < LAYERS; ++t) {
+            if (scenes[scene].lush[t] == LUSH_NONE) continue;
+            if (!(pending_ok & (1U << t)) || lush_voice_import(t, pending[t]))
+                lush_voice_set(t, scenes[scene].lush[t]);
+        }
+        pending_ok = 0;
+    }
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
         unsigned patch = scene >= 0 && t < LAYERS ? scenes[scene].lush[t] : LUSH_NONE;
         if (patch == LUSH_NONE) { lush_layer(t, LUSH_NONE, 0, 0, 0); continue; }
