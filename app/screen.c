@@ -36,7 +36,7 @@ static uint16_t frost(unsigned x, unsigned y, unsigned glass)
     for (unsigned i = 0; i < 3; ++i) {
         int dx = (int)x - glows[i].x, dy = (int)y - glows[i].y, d2 = dx * dx + dy * dy;
         if (d2 >= glows[i].r2) continue;
-        int w = (int)(((int64_t)(glows[i].r2 - d2) * glows[i].inv) >> 16); /* 0..256 */
+        int w = (int)((uint32_t)(glows[i].r2 - d2) * (uint32_t)glows[i].inv >> 16); /* 0..256; product < 2^25 */
         w = (w * w) >> 8;                                                     /* soft edge */
         r += (glows[i].r * w) >> 8; g += (glows[i].g * w) >> 8; b += (glows[i].b * w) >> 8;
     }
@@ -478,7 +478,7 @@ static void knob(unsigned col, const char *label, const char *value, uint16_t co
     paint_fill(x, 195, 54, 32, BACK);
     paint_fill(x, 195, 54, 2, color);
     text(x, 200, label, 1, TEXT, BACK);
-    text(x, 212, value, strlen(value) <= 4 ? 2 : 1, color, BACK);
+    text(x, 209, value, strlen(value) <= 4 ? 2 : 1, color, BACK); /* rows 209-222: one band */
 }
 static __attribute__((noinline)) void header(const struct groove_view *v)
 {
@@ -507,13 +507,13 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
      * only updates its two digits and, at a page boundary, two indicators. */
     if (first || (changed & 1023U)) {
         if (v->clock_mode && !v->tempo)
-            text(8, 8, "---", 2, DIM, BACK);
+            text(8, 2, "---", 2, DIM, BACK);
         else
-            number(8, 8, v->tempo, 3, 2, TEXT, BACK);
+            number(8, 2, v->tempo, 3, 2, TEXT, BACK); /* rows 2-15: one paint band, no tearing */
     }
     if (first || (changed & (7U << 18))) {
-        paint_fill(45, 15, 32, 7, BACK);
-        text(45, 15, !v->clock_mode ? "BPM" : v->clock_state == GROOVE_CLOCK_LOST
+        paint_fill(45, 9, 32, 7, BACK);
+        text(45, 9, !v->clock_mode ? "BPM" : v->clock_state == GROOVE_CLOCK_LOST
             ? "LOST" : v->clock_state == GROOVE_CLOCK_LOCKED ? (groove_midi_setting(track,6) == 1 ? "USB" : groove_midi_setting(track,6) == 2 ? "BLE" : groove_midi_setting(track,6) == 3 ? "DIN" : "EXT") : "WAIT",
             1, v->clock_state == GROOVE_CLOCK_LOST ? AMBER : DIM, BACK);
     }
@@ -2621,7 +2621,7 @@ controls_done:
     if ((pressed & BUTTON(PLAY)) && !play_handled) {
         struct groove_view view = {0};
         groove_get_view(track, cursor, &view);
-        uint8_t command = view.playing ? 0xfc : (writing && groove_sequence_setting(2) && groove_sequence_rewound() ? 0xfa : 0xfb);
+        uint8_t command = view.playing ? 0xfc : 0xfa; /* WORSHIP: PLAY always restarts from the top */
         if (!post(command, 0, 0, 1)) return 0;
     }
     unsigned mode = navigation_mode();

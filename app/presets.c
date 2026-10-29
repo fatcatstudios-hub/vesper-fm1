@@ -478,8 +478,15 @@ int worship_chord_edit(int root_delta, int quality_delta)
 static void overload_guard(void)
 {
     static uint32_t checked, calm_since, seen;
-    static unsigned budget = 8, started;
+    static unsigned budget = 6, ceiling = 8, started;
+    static int last_scene = -2;
     uint32_t now = fm1_millis();
+    int scene = active_scene();
+    if (scene != last_scene) {
+        /* New scene: start a little under full and learn its own ceiling. */
+        last_scene = scene; budget = 6; ceiling = 8; calm_since = now;
+        lush_budget(budget);
+    }
     if (started && now - checked < 100U) return;
     checked = now;
     struct fm1_audio_stats dma; fm1_audio_stats_read(&dma);
@@ -488,8 +495,9 @@ static void overload_guard(void)
     if (!started) { started = 1; seen = late; calm_since = now; }
     if (late != seen) {
         seen = late; calm_since = now;
-        if (budget > 2U) lush_budget(--budget);
-    } else if (now - calm_since >= 4000U && budget < 8U) {
+        /* Never probe back up to a level that already broke up. */
+        if (budget > 2U) { ceiling = budget - 1U; lush_budget(--budget); }
+    } else if (now - calm_since >= 4000U && budget < ceiling) {
         calm_since = now;
         lush_budget(++budget);
     }

@@ -625,7 +625,7 @@ static LUSH_CODE void render_voice(struct voice *v)
         int32_t to = v->amp.level >> 15, step = (to - from) / TICK, amp = from;
         v->amp_now = to;
         for (unsigned k = 0; k < TICK; ++k) {
-            int32_t s, s_right = 0;
+            int32_t s;
             if (p->ks == 3) {
                 int32_t sum = 0;
                 for (unsigned q = 0; q < 4; ++q) {
@@ -683,7 +683,7 @@ static LUSH_CODE void render_voice(struct voice *v)
             } else if (k & 1U) {
                 /* Synth voices run at 22.05 kHz: odd samples repeat the last
                  * computed one; even ones (below) interpolate across the gap. */
-                s = v->last_l; s_right = v->last_r;
+                s = v->last_l;
             } else {
                 int32_t a = 0, b = 0, c = 0, common = 0;
                 uint32_t i0 = v->inc[0] << 1, i1 = v->inc[1] << 1, i2 = v->inc[2] << 1;
@@ -703,12 +703,10 @@ static LUSH_CODE void render_voice(struct voice *v)
                 if (p->noise) common += (noise15(&v->random) * p->noise) >> 7;
                 for (unsigned u = 0; u < 4; ++u) v->phase[u] += v->inc[u] << 1;
                 if (p->stereo) {
-                    /* Unison split across the field: outer saws hard left/right, centre shared. */
-                    int32_t l = p->unison >= 3 ? a + (b >> 1) : a, r = p->unison >= 3 ? c + (b >> 1) : b;
-                    l = ((l * saw_level) >> 15) + common;
-                    r = ((r * saw_level) >> 15) + common;
-                    s = warm_filter(l, p, v->f, v->q, &v->lp1, &v->bp1, &v->lp2, &v->bp2);
-                    s_right = warm_filter(r, p, v->f, v->q, &v->rl1, &v->rb1, &v->rl2, &v->rb2);
+                    /* Wide unison: one filter on the summed saws (half the cost of a
+                     * filter per side on this chip); the shared chorus spreads it. */
+                    int32_t x = (((a + b + c) * (saw_level >> 1)) >> 15) + common;
+                    s = warm_filter(x, p, v->f, v->q, &v->lp1, &v->bp1, &v->lp2, &v->bp2);
                 } else if (p->formant) {
                     /* Three vowel formants in parallel (band-passes, q ~ 0.18). */
                     int32_t x = (((a + b + c) * saw_level) >> 15) + common, y = 0;
@@ -726,21 +724,15 @@ static LUSH_CODE void render_voice(struct voice *v)
                     int32_t osc = (((a + b + c) * saw_level) >> 15) + common;
                     s = warm_filter(osc, p, v->f, v->q, &v->lp1, &v->bp1, &v->lp2, &v->bp2);
                 }
-                int32_t now_l = s, now_r = s_right;
-                s = (v->last_l + now_l) >> 1; s_right = (v->last_r + now_r) >> 1;
-                v->last_l = now_l; v->last_r = now_r;
+                int32_t now = s;
+                s = (v->last_l + now) >> 1;
+                v->last_l = now;
             }
             amp += step;
             int32_t out = (int32_t)(((int64_t)s * amp) >> 15);
             out = (int32_t)(((int64_t)out * gain) >> 15);
             unsigned j = at + k;
-            if (p->stereo) {
-                int32_t outr = (int32_t)(((int64_t)s_right * amp) >> 15);
-                outr = (int32_t)(((int64_t)outr * gain) >> 15);
-                bus_dry[2 * j] += out;
-                bus_dry[2 * j + 1] += outr;
-                out = (out + outr) >> 1; /* sends are mono */
-            } else if (p->chorus) bus_chorus[j] += out;
+            if (p->chorus || p->stereo) bus_chorus[j] += out;
             else {
                 bus_dry[2 * j] += (out * left) >> 15;
                 bus_dry[2 * j + 1] += (out * right) >> 15;
@@ -941,7 +933,11 @@ LUSH_CODE void lush_render(int32_t *output)
     /* Dual-tap stereo delay, the classic two-delay worship guitar rig:
      * left repeats at the FX time (dotted eighth by default), right at 4/3 of
      * it (a quarter), and both feed back, so echoes interlock across the field. */
-    uint32_t dtime = delay_q16, dtime_r = (uint32_t)(((uint64_t)dtime * 4U) / 3U);
+    static uint32_t delay_now;
+    if (!delay_now) delay_now = delay_q16;
+    /* A tempo change glides the delay time (tape-style) instead of jumping and clicking. */
+    delay_now += (uint32_t)((int32_t)(delay_q16 - delay_now) >> 5);
+    uint32_t dtime = delay_now, dtime_r = (uint32_t)(((uint64_t)dtime * 4U) / 3U);
     if (dtime_r > ((uint32_t)(DELAY_LEN - 2) << 16)) dtime_r = (uint32_t)(((uint64_t)dtime * 2U) / 3U);
     for (unsigned j = 0; j < N; ++j) {
         /* chorus */
