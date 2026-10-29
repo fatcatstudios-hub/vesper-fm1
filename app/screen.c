@@ -39,7 +39,9 @@ enum {
     INK = 0x0001      /* text background: leave it as it is (second pass of bold text) */
 };
 /* Three faint glows: centre x, y, radius^2, 1/radius^2 (Q24) and their RGB565 tint. */
-static const struct { int16_t x, y; int32_t r2, inv; uint8_t r, g, b; } glows[3] = {
+/* Read for every pixel, so these tables live in on-chip RAM (FM1_AUDIO_DATA):
+ * const data stays in flash, and reading flash per pixel made drawing ~10x slower. */
+static FM1_AUDIO_DATA const struct { int16_t x, y; int32_t r2, inv; uint8_t r, g, b; } glows[3] = {
     {200,  30, 120 * 120, 16777216 / (120 * 120), 1, 7, 6},   /* ice, top right */
     { 30, 200, 130 * 130, 16777216 / (130 * 130), 4, 3, 6},   /* lavender, low left */
     {140, 140,  90 *  90, 16777216 / ( 90 *  90), 3, 2, 3},   /* rose haze, centre */
@@ -78,7 +80,7 @@ static uint16_t frost(unsigned x, unsigned y, unsigned glass)
     return (uint16_t)((r > 31 ? 31 : r) << 11 | (g > 63 ? 63 : g) << 5 | (b > 31 ? 31 : b));
 }
 /* Five columns per glyph, bit 0 at the top. Digits followed by uppercase. */
-static const uint8_t font[36][5] = {
+static FM1_AUDIO_DATA const uint8_t font[36][5] = {
     {0x3e, 0x51, 0x49, 0x45, 0x3e}, {0, 0x42, 0x7f, 0x40, 0},       {0x42, 0x61, 0x51, 0x49, 0x46},
     {0x21, 0x41, 0x45, 0x4b, 0x31}, {0x18, 0x14, 0x12, 0x7f, 0x10}, {0x27, 0x45, 0x45, 0x45, 0x39},
     {0x3c, 0x4a, 0x49, 0x49, 0x30}, {0x01, 0x71, 0x09, 0x05, 0x03}, {0x36, 0x49, 0x49, 0x49, 0x36},
@@ -129,7 +131,7 @@ static __attribute__((noinline)) void paint_fill(unsigned x, unsigned y, unsigne
             paint_pixels[(row - paint_top) * (paint_end - paint_x) + col - paint_x] =
                 see_through ? frost(col, row, color == PANEL) : color;
 }
-static const uint8_t punctuation[][6] = {
+static FM1_AUDIO_DATA const uint8_t punctuation[][6] = {
     {45,8,8,8,8,8}, {47,0x60,0x18,6,1,0}, {43,8,8,0x3e,8,8},
     {35,0x14,0x7f,0x14,0x7f,0x14}, {37,0x63,0x13,8,0x64,0x63},
     {62,0x41,0x22,0x14,8,0}, {63,2,1,0x51,9,6},
