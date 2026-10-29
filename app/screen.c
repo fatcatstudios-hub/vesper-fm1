@@ -561,12 +561,6 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
         char at[4] = {(char)('1' + beat / 4U), '.', (char)('1' + beat % 4U), 0};
         text(112, 7, at, 1, TEXT, BACK);
     }
-    for (unsigned i = 0; i < 4; ++i) {
-        unsigned active = v->playing && i == v->play_step / 16;
-        unsigned was_active = (previous & (1U << 16)) && i == ((previous >> 14) & 3U);
-        if (first || active != was_active || (changed & (7U << 24)))
-            paint_fill(80 + i * 16, 20, 12, 3, active ? GREEN : i * 16 < v->sequence_length ? PANEL : BACK);
-    }
     if (first || (changed & (1U << 22)))
         text(142, 7, step_follow ? "FOLLOW" : "EDIT  ", 1, step_follow ? GREEN : AMBER, BACK);
     if (first || (changed & ((1U << 16) | (1U << 17) | (1U << 23) | (7U << 29)))) {
@@ -627,7 +621,7 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
             unsigned step = page + i;
             unsigned enabled = step < v[t].sequence_length;
             unsigned on = enabled && (unsigned)((v[t].active_steps >> step) & 1U);
-            unsigned head = v[t].playing && t == track && v[t].play_step % 16U == i;
+            unsigned head = v[t].playing && t == track && (v[t].play_step % 16U) / 4U * 4U == i; /* steps on beats */
             unsigned selected = enabled && t == track && step == cursor && !v[t].playing;
             uint32_t sig = on | (head << 1) | (selected << 2) | ((uint32_t)v[t].audible << 3) | (enabled << 4);
             if (sig == cache->cell_cache[t][i]) continue;
@@ -3273,7 +3267,11 @@ void groove_screen_control(void)
 #endif
     /* Input changes do not wait for the animation timer. LCD work is bounded
      * separately and continues on later polls, even between animation frames. */
-    if (now - frame_ms >= 33U || page != old_page || input_changed || saved_cache.shown_page == ~0U) {
+    /* 30 checks a second while you are touching it, 15 when it is just playing. */
+    static uint32_t touched;
+    if (input_changed) touched = now;
+    unsigned frame_gap = now - touched < 1500U ? 33U : 66U;
+    if (now - frame_ms >= frame_gap || page != old_page || input_changed || saved_cache.shown_page == ~0U) {
         frame_ms = now;
         draw(&ble);
     }
