@@ -44,6 +44,27 @@ void fm1_controls_read(struct fm1_controls *state)
     *state = snapshot;
 }
 
+/* Button test: the panel matrix has 88 contacts and the firmware maps 55.
+ * Report the first unmapped contact that differs from power-up (column << 4 |
+ * row), or 0xff, so a hidden switch (a SELECT push) can be located. */
+unsigned fm1_panel_probe(void)
+{
+    static uint8_t base[FM1_NCOL], known[FM1_NCOL], ready;
+    if (!ready) {
+        for (unsigned k = 0; k < FM1_NKEY; ++k) known[fm1_key_pin[k] >> 4] |= (uint8_t)(1U << (fm1_key_pin[k] & 15U));
+        for (unsigned e = 0; e < FM1_NENC; ++e)
+            for (unsigned i = 0; i < 2; ++i) known[fm1_encoder_pin[e][i] >> 4] |= (uint8_t)(1U << (fm1_encoder_pin[e][i] & 15U));
+        for (unsigned c = 0; c < FM1_NCOL; ++c) base[c] = fm1_in.rows[c];
+        ready = 1;
+    }
+    for (unsigned c = 0; c < FM1_NCOL; ++c) {
+        unsigned diff = (unsigned)(fm1_in.rows[c] ^ base[c]) & ~(unsigned)known[c] & 0xffU;
+        for (unsigned r = 0; diff; ++r, diff >>= 1)
+            if (diff & 1U) return c << 4 | r;
+    }
+    return 0xffU;
+}
+
 void fm1_led_set(unsigned key, int on)
 {
     fm1_led_key(key, on);

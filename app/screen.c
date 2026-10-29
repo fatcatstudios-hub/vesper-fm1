@@ -4,6 +4,11 @@
 #include "version.h"
 #include "fm1_engine_control.h"
 #include "lush.h"
+/* WORSHIP_SLIM: leave out stock pages the worship build replaces (Bluetooth
+ * pairing, DX7 FM editor and naming) to free program flash. */
+#ifndef WORSHIP_SLIM
+#define WORSHIP_SLIM 1
+#endif
 #include <string.h>
 /* Crystal theme. BACK and PANEL are not flat colours: BACK draws the frosted
  * backdrop (deep indigo with faint floating glows) and PANEL draws frosted
@@ -102,7 +107,10 @@ static const uint8_t punctuation[][6] = {
     {64,0x32,0x49,0x79,0x41,0x3e}, {91,0,0x7f,0x41,0x41,0},
     {92,1,6,0x18,0x60,0}, {93,0,0x41,0x41,0x7f,0}, {94,4,2,1,2,4},
     {95,0x40,0x40,0x40,0x40,0x40}, {96,0,1,2,4,0}, {123,0,8,0x36,0x41,0},
-    {124,0,0,0x7f,0,0}, {125,0,0x41,0x36,8,0}, {126,8,4,8,0x10,8}
+    {124,0,0,0x7f,0,0}, {125,0,0x41,0x36,8,0}, {126,8,4,8,0x10,8},
+    /* the few lowercase letters chord names need: Bb, C#m, Asus2 */
+    {'b',0x7f,0x48,0x44,0x44,0x38}, {'m',0x7c,0x04,0x18,0x04,0x78},
+    {'s',0x48,0x54,0x54,0x54,0x20}, {'u',0x3c,0x40,0x40,0x20,0x7c}
 };
 static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t color,
                  uint16_t background)
@@ -123,16 +131,16 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
         char letter = *s >= 'a' && *s <= 'z' ? (char)(*s - 'a' + 'A') : *s;
         static const uint8_t blank[5] = {0};
         const uint8_t *shape = blank;
-        if (*s >= '0' && *s <= '9')
+        for (unsigned i = 0; *s != ' ' && i < sizeof punctuation / sizeof punctuation[0]; ++i)
+            if ((uint8_t)*s == punctuation[i][0]) {
+                shape = punctuation[i] + 1;
+                break;
+            }
+        if (shape != blank) {
+        } else if (*s >= '0' && *s <= '9')
             shape = font[*s - '0'];
         else if (letter >= 'A' && letter <= 'Z')
             shape = font[10 + letter - 'A'];
-        else if (*s != ' ')
-            for (unsigned i = 0; i < sizeof punctuation / sizeof punctuation[0]; ++i)
-                if ((uint8_t)*s == punctuation[i][0]) {
-                    shape = punctuation[i] + 1;
-                    break;
-                }
         unsigned first_row = y < paint_top ? paint_top : y;
         unsigned end_row = y + h < paint_top + PAINT_ROWS ? y + h : paint_top + PAINT_ROWS;
         unsigned first_col = x < paint_x ? paint_x : x;
@@ -556,10 +564,13 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
         paint_fill(ORBIT_X - 24, ORBIT_Y - 16, 49, 33, BACK);   /* inside the inner ring */
         paint_fill(158, 32, 82, 12, BACK);
         text(160, 34, scene, 1, ACCENT, BACK);
-        if (root) {
-            unsigned w = (unsigned)strlen(root) * 18U;
-            text(ORBIT_X - w / 2U, ORBIT_Y - 14, root, 3, TEXT, BACK);
-            text(ORBIT_X - (unsigned)strlen(quality) * 3U, ORBIT_Y + 9, quality, 1, DIM, BACK);
+        if (root) { /* "E", "Bb", "C#m" big; "sus2" / "sus4" underneath */
+            char name[4] = {0};
+            strcpy(name, root);
+            if (quality[0] == 'm') strcat(name, "m");
+            unsigned n = (unsigned)strlen(name), scale = n <= 2U ? 3U : 2U;
+            text(ORBIT_X - n * 3U * scale, ORBIT_Y - 7U * scale / 2U - 2U, name, scale, TEXT, BACK);
+            if (quality[0] == 's') text(ORBIT_X - 12U, ORBIT_Y + 10, quality, 1, DIM, BACK);
         } else {
             number(ORBIT_X - 12, ORBIT_Y - 7, (int)first + 1, 2, 2, TEXT, BACK); /* page start */
         }
@@ -981,6 +992,19 @@ static __attribute__((noinline)) void mix_draw(const struct groove_view v[8])
         text(8, 35, "MIX  4 LAYERS", 1, TEXT, BACK);
         text(8, 51, "KEYS 1-4 MUTE  9-12 SOLO", 1, DIM, BACK);
     }
+#if FM1_OPEN_WEB
+    unsigned probe = 0xffU;
+#else
+    unsigned probe = fm1_panel_probe();
+#endif
+    if (cache->tile_cache[15] != probe) { /* button test: press SELECT to see if it is wired */
+        cache->tile_cache[15] = probe;
+        paint_fill(150, 32, 90, 12, BACK);
+        text(150, 35, "TEST", 1, DIM, BACK);
+        char code[3] = "--";
+        if (probe != 0xffU) { static const char hex[] = "0123456789ABCDEF"; code[0] = hex[probe >> 4]; code[1] = hex[probe & 15U]; }
+        text(180, 35, code, 1, probe != 0xffU ? GREEN : DIM, BACK);
+    }
     for (unsigned i = 0; i < 8; ++i) { /* top row mutes, bottom row solos */
         unsigned t = i & 3U, on = i < 4 ? v[t].muted : v[t].solo;
         const char *lush = lush_track_name(t);
@@ -1394,9 +1418,8 @@ static __attribute__((noinline, cold, minsize)) void boot_draw(void)
     if (cache->title_cache != 0) {
         cache->title_cache = 0;
         text(86, 48, "FM1", 4, TEXT, BACK);
-        text(81, 98, "OFFICIAL OPEN", 1, ACCENT, BACK);
-        text((240 - 12 * (sizeof FM1_RELEASE_VERSION - 1)) / 2, 120,
-             FM1_RELEASE_VERSION, 2, TEXT, BACK);
+        text(99, 98, "WORSHIP", 1, ACCENT, BACK);
+        text((240 - 12 * (sizeof WORSHIP_VERSION - 1)) / 2, 120, WORSHIP_VERSION, 2, TEXT, BACK);
         text(102, 208, "M-VAVE", 1, DIM, BACK);
     }
     if (cache->middle_cache == boot_phase) return;
@@ -1433,19 +1456,25 @@ static void draw_page_body(const struct fm1_ble_status *ble)
         project_draw();
         return;
     }
+#if !WORSHIP_SLIM
     if (visible == BLE) {
         draw_ble(ble);
         return;
     }
+#else
+    (void)ble;
+#endif
     header(v);
     if (visible >= SOURCE) {
         edit_page_draw(visible);
         return;
     }
+#if !WORSHIP_SLIM
     if (visible == NAME) {
         name_draw();
         return;
     }
+#endif
     if (visible == EFFECTS) {
         effects_draw();
         if (cache->hint_cache != 1U) {
@@ -1469,7 +1498,17 @@ static void draw_page_body(const struct fm1_ble_status *ble)
     else if (visible == TONE_EDIT || (visible == FM_ENV && v->type != GROOVE_DX7)) {
         tone_draw(patch);
     } else {
+#if WORSHIP_SLIM
+        (void)patch; (void)controls;
+        if (cache->middle_cache != 1U) {
+            cache->middle_cache = 1U;
+            paint_fill(0, 32, 240, 150, BACK);
+            text(8, 60, "VOICE EDITING", 2, ACCENT, BACK);
+            text(8, 84, "ARRIVES IN WORSHIP 0.7", 1, DIM, BACK);
+        }
+#else
         fm_draw(patch, &controls);
+#endif
     }
     /* Lower controls cannot intersect an upper LCD band. Avoid formatting
      * their labels and querying the engine once for every unrelated band. */
@@ -1578,7 +1617,14 @@ static void draw_page_body(const struct fm1_ble_status *ble)
         } else {
             static const char *const labels[4] = {"LEVEL", "STEP", "NOTE", "BPM"};
             label = labels[col];
-            if (col == 0)
+            if (visible == OVERVIEW && col < 3 && worship_chord_root()) {
+                static const char *const home[3] = {"KEY", "CHORD", "LEVEL"};
+                const char *q = worship_chord_quality();
+                label = home[col];
+                if (col == 0) strcpy(value, worship_chord_root());
+                else if (col == 1) strcpy(value, q[0] == 'm' ? "MIN" : q[0] ? (q[3] == '2' ? "SUS2" : "SUS4") : "MAJ");
+                else decimal(value, v->volume, 1);
+            } else if (col == 0)
                 decimal(value, v->volume, 1);
             else if (col == 1 && visible == OVERVIEW) {
                 label = "SOURCE";
@@ -1611,7 +1657,7 @@ static void draw_page_body(const struct fm1_ble_status *ble)
                                                              : "STEP REC - PLAY KEYS  REC TO FINISH"
                        : visible == OVERVIEW && (previous_buttons & BUTTON(HOME))
                            ? "PRESETS SOURCE  EDIT PARAMETERS"
-                       : visible == OVERVIEW ? "PRESETS SCENE   KEYS CHORD"
+                       : visible == OVERVIEW ? "PRESETS SCENE  ALGO LAYER"
                        : visible == STEPS    ? "PRESETS STEP  OCT PAGE  HOLD SEQ MORE"
                        : visible == MIX      ? "KEYS MUTE/SOLO  GLO / HOME BACK"
                        : visible == FM_EDIT  ? "BLACK OP  SELECT PAGE  EDIT BACK"
@@ -1979,7 +2025,9 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     }
     if ((controls->buttons & (BUTTON(HOME) | BUTTON(GLO))) == (BUTTON(HOME) | BUTTON(GLO)) &&
         (pressed & (BUTTON(HOME) | BUTTON(GLO)))) {
+#if !WORSHIP_SLIM
         page = BLE; glo_down = glo_used = ble_view = ble_forget = ble_action = 0; ble_result = 0;
+#endif
         goto controls_done;
     }
     /* Keep the original HOME+PRESETS shortcut, including after HOME opens
@@ -2193,9 +2241,16 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             else if (action == 15) { r = groove_timbre_export(track, (uint8_t *)&tone_clip, sizeof tone_clip); tone_clip_ready = !r; }
             else if (action == 16) r = tone_clip_ready ? groove_timbre_import(track, (uint8_t *)&tone_clip, sizeof tone_clip) : -1;
             else if (action == 17) {
+#if !WORSHIP_SLIM
                 if (groove_source_type(track) == GROOVE_DX7) { page = NAME; name_cursor = 0; }
-                else r = -1;
-            } else if (action == 18) { page = BLE; ble_view = ble_forget = ble_action = 0; ble_result = 0; }
+                else
+#endif
+                    r = -1;
+            } else if (action == 18) {
+#if !WORSHIP_SLIM
+                page = BLE; ble_view = ble_forget = ble_action = 0; ble_result = 0;
+#endif
+            }
             else {
                 if (!post(0xff, 0, 0, 1)) return 0;
                 memset(key_note, 0xff, sizeof key_note); project_keys = 0; writing = 0; page = OVERVIEW;
@@ -2304,6 +2359,18 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 (page == TONE_EDIT && !advanced_edit);
             select_track(tracks ? controls->encoders[0] : 0);
             {
+                if (page == OVERVIEW && worship_chord_root()) {
+                    /* Worship HOME: ALGORITHM focuses a layer, K1 transposes the
+                     * chord, K2 steps its quality, K3 layer level, K4 BPM. */
+                    if (controls->encoders[1]) select_track(controls->encoders[1]);
+                    if ((controls->encoders[2] || controls->encoders[3]) &&
+                        worship_chord_edit(controls->encoders[2], controls->encoders[3]) > 0) {
+                        notice = worship_chord_label(); notice_until = now + 1500U;
+                    }
+                    if (controls->encoders[4]) groove_control_edit(track, 0, controls->encoders[4], 0);
+                    if (controls->encoders[5]) groove_tempo_edit(controls->encoders[5]);
+                    goto controls_done;
+                }
                 if (page == OVERVIEW && (controls->encoders[1] || controls->encoders[3])) {
                     /* Type and timbre are separate controls. Finish old note-offs
                      * before replacing the instance; held keys wait for release. */

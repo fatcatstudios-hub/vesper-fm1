@@ -239,7 +239,9 @@ int groove_factory_load(unsigned index);
 int worship_keys(uint32_t keys, uint32_t pressed, int octave);
 const char *worship_chord_label(void);
 const char *worship_chord_root(void);    /* NULL outside worship scenes */
-const char *worship_chord_quality(void);
+const char *worship_chord_quality(void); /* "", "m", "sus2", "sus4" */
+int worship_chord_edit(int root_delta, int quality_delta); /* 1 changed, 0 same, -1 not a worship scene */
+unsigned fm1_panel_probe(void); /* button test: unmapped contact or 0xff */
 void worship_poll(void); /* control task, every tick */
 /* Bluetooth master preserves audio preference and MIDI role while disabled. */
 enum { GROOVE_RADIO_ON = 1, GROOVE_RADIO_AUDIO = 2, GROOVE_RADIO_MIDI = 4,
