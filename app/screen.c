@@ -35,7 +35,8 @@ enum {
     ACCENT = 0x8edf,  /* ice blue */
     DIM = 0x8c97,     /* lavender grey */
     GREEN = 0x7f9a,   /* aqua: play, follow, active */
-    AMBER = 0xfd94    /* soft rose: pause, warnings */
+    AMBER = 0xfd94,   /* soft rose: pause, warnings */
+    INK = 0x0001      /* text background: leave it as it is (second pass of bold text) */
 };
 /* Three faint glows: centre x, y, radius^2, 1/radius^2 (Q24) and their RGB565 tint. */
 static const struct { int16_t x, y; int32_t r2, inv; uint8_t r, g, b; } glows[3] = {
@@ -183,8 +184,10 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
             uint16_t *pixel = paint_pixels + (row - paint_top) * stride + first_col - paint_x;
             for (unsigned col = first_col; col < end_col; ++col) {
                 unsigned column = (col - x) / scale;
-                *pixel++ = column < 5U && (shape[column] & mask) ? color
-                         : background == BACK || background == PANEL ? frost(col, row, background == PANEL) : background;
+                if (column < 5U && (shape[column] & mask)) *pixel = color;
+                else if (background != INK)
+                    *pixel = background == BACK || background == PANEL ? frost(col, row, background == PANEL) : background;
+                ++pixel;
             }
         }
     }
@@ -550,10 +553,6 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
         paint_fill(32, 10, 2, 6, TEXT);
         for (unsigned i = 0; i < 4; ++i)
             paint_fill(11 + 5 * i, 9, 4, 8, percent > i * 25U ? fill : PANEL);
-        char pct[6];
-        decimal(pct, (int)percent, 1); strcat(pct, "%");
-        paint_fill(38, 9, 30, 7, BACK);
-        text(38, 9, pct, 1, percent < 25U ? AMBER : DIM, BACK);
     }
     if (first || (changed & ((1U << 16) | (1U << 28))))
         text(80, 7, v->playing ? "PLAY " : paused ? "PAUSE" : "STOP ", 1,
@@ -640,7 +639,7 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
         const char *lush = lush_track_name(t);
         uint32_t meta = v[t].program | ((t == track) << 14) | ((uint32_t)v[t].muted << 16) |
                         ((uint32_t)v[t].solo << 17) | ((uint32_t)v[t].ready << 18) |
-                        ((uint32_t)v[t].type << 19) | ((uint32_t)midi_active[t] << 22) |
+                        ((uint32_t)v[t].type << 19) |
                         ((uint32_t)groove_track_role(t) << 23);
         meta ^= (uint32_t)(uintptr_t)lush << 7;
         if (meta != cache->row_cache[t]) {
@@ -652,11 +651,10 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
             const char *rest = name[n] == ' ' ? name + n + 1 : "";
             const char *state = groove_track_role(t) == GROOVE_TRACK_OFF ? "OFF"
                 : v[t].muted ? "MUTE" : v[t].solo ? "SOLO" : rest;
-            if (t == track) { diamond(162, y + 7, 4, TEXT); diamond(162, y + 7, 2, colors[t]); }
-            else diamond(162, y + 7, 3, v[t].muted ? DIM : colors[t]);
-            if (midi_active[t]) diamond(162, y + 15, 1, GREEN);
-            text(170, y + 1, word, 1, v[t].muted ? DIM : colors[t], BACK);
-            text(170, y + 10, state, 1, t == track ? TEXT : DIM, BACK);
+            /* The focused layer is drawn bold (a second pass one pixel right). */
+            text(162, y + 1, word, 1, v[t].muted ? DIM : colors[t], BACK);
+            if (t == track) text(163, y + 1, word, 1, v[t].muted ? DIM : colors[t], INK);
+            text(162, y + 10, state, 1, t == track ? TEXT : DIM, BACK);
         }
         unsigned level = lush ? lush_track_level(t) : v[t].audible ? v[t].level : 0U;
         unsigned meter = (level * 60U + 63U) / 127U;
