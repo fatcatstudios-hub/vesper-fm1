@@ -7,6 +7,8 @@
   "app/screen.c:^static void paint_mark\\(": "d7f290d9f1100a9a",
   "app/audio_output.c:^FM1_AUDIO_CODE void fm1_output_mix\\(": "947abc76cff244d6",
   "app/board/panel.c:None": "fc28e5d73dc513bc",
+  "app/project.c:^void groove_project_init\\(void\\)": "9371a0cac4341ad0",
+  "app/project.c:^void groove_project_poll\\(void\\)": "9067a80c83d2d4d0",
   "app/screen.c:^static uint16_t paint_pixels\\[.*$": "38c5dc63fc6646ee"
  }
 }
