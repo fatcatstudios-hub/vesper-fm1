@@ -2065,7 +2065,8 @@ static int release_keys_except(uint32_t keep)
 {
     for (unsigned key = 0; key < 27; ++key)
         if (key_note[key] != 0xff && !(keep & (1U << key))) {
-            if (!post((uint8_t)(0x80 + groove_midi_input_channel(key_track[key])), key_note[key], 0, 3))
+            if (lush_track_name(key_track[key])) lush_live_note(key_track[key], key_note[key], 0);
+            else if (!post((uint8_t)(0x80 + groove_midi_input_channel(key_track[key])), key_note[key], 0, 3))
                 return 0;
             key_note[key] = 0xff;
             project_keys &= ~(1U << key);
@@ -2993,13 +2994,16 @@ controls_done:
         if (key_note[key] != 0xff &&
             (mode || !(keys & (1U << key)) ||
              (key_note[key] != note && !(project_keys & (1U << key))) || key_track[key] != track)) {
-            if (!post((uint8_t)(0x80 + groove_midi_input_channel(key_track[key])), key_note[key], 0, 3))
+            if (lush_track_name(key_track[key])) lush_live_note(key_track[key], key_note[key], 0);
+            else if (!post((uint8_t)(0x80 + groove_midi_input_channel(key_track[key])), key_note[key], 0, 3))
                 return 0;
             key_note[key] = 0xff;
             project_keys &= ~(1U << key);
         }
         if (!mode && note < 128 && (keys & (1U << key)) && key_note[key] == 0xff) {
-            if (!post((uint8_t)(0x90 + groove_midi_input_channel(track)), (uint8_t)note, 100, 3))
+            /* VESPER: a LUSH layer plays its own voice; the engine track under it is silent. */
+            if (lush_track_name(track)) lush_live_note(track, note, 100);
+            else if (!post((uint8_t)(0x90 + groove_midi_input_channel(track)), (uint8_t)note, 100, 3))
                 return 0;
             key_note[key] = (uint8_t)note;
             key_track[key] = (uint8_t)track;

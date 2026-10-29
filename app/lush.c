@@ -1014,8 +1014,25 @@ static inline LUSH_HOT int32_t soft_limit(int32_t x)
     return x < 0 ? -over : over;
 }
 
+/* Keys played live (VESPER play mode): queued by the control task, started by
+ * the audio context at the top of the next block, so voices only ever change
+ * in one context. */
+static volatile uint32_t live_queue[16];
+static volatile uint8_t live_write, live_read;
+void lush_live_note(unsigned track, unsigned note, unsigned velocity)
+{
+    uint8_t w = live_write;
+    if ((uint8_t)(w - live_read) >= 16U || track >= TRACKS || note > 127) return;
+    live_queue[w & 15U] = track | note << 8 | (velocity > 127 ? 127U : velocity) << 16;
+    live_write = (uint8_t)(w + 1U);
+}
 LUSH_CODE void lush_render(int32_t *output)
 {
+    while (live_read != live_write) {
+        uint32_t e = live_queue[live_read & 15U];
+        lush_note(e & 255U, (e >> 8) & 255U, e >> 16);
+        live_read = (uint8_t)(live_read + 1U);
+    }
     unsigned any = 0;
     for (unsigned t = 0; t < TRACKS; ++t) {
         if (layer[t].applied != layer[t].patch) {

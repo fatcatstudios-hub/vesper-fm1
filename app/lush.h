@@ -52,6 +52,8 @@ enum {
     LP_OCTAVE = LUSH_PARAMS, /* -2..+2 octaves, kept beside the patch */
     LUSH_VOICE_BYTES = 42
 };
+/* Control task: play a key live on a LUSH layer (velocity 0 = release). */
+void lush_live_note(unsigned track, unsigned note, unsigned velocity);
 void lush_voice_set(unsigned track, unsigned patch);
 unsigned lush_voice_sound(unsigned track);
 int lush_param_applies(unsigned track, unsigned id);
