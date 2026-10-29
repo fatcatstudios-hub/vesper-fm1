@@ -662,16 +662,7 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
             if (t == track) text(163, y + 1, word, 1, v[t].muted ? DIM : colors[t], INK);
             text(162, y + 10, state, 1, t == track ? TEXT : DIM, BACK);
         }
-        unsigned level = lush ? lush_track_level(t) : v[t].audible ? v[t].level : 0U;
-        unsigned meter = (level * 10U + 63U) / 127U * 6U; /* ten steady steps, not every flicker */
-        static uint32_t meter_at[LAYERS_SHOWN];
-        if (!paint_rendering && meter != cache->meter_cache[t] && frame_time - meter_at[t] < 200U) meter = cache->meter_cache[t];
-        if (!hold && meter != cache->meter_cache[t]) {
-            if (!paint_rendering) meter_at[t] = frame_time; /* at most five updates a second */
-            cache->meter_cache[t] = meter;
-            paint_fill(170, y + 21, 62, 2, PANEL);
-            if (meter) paint_fill(170, y + 21, meter, 2, level >= 124 ? AMBER : colors[t]);
-        }
+        /* No level meter here: levels move on the HOME mixer page only. */
     }
 }
 static void step_knob(unsigned col, unsigned bank)
@@ -1033,46 +1024,50 @@ static __attribute__((noinline)) void tone_draw(const uint8_t values[GROOVE_TONE
     }
 }
 #endif /* !WORSHIP_SLIM */
+/* HOME, second press: the four-voice mixer. Each strip shows its live level
+ * (the only place levels move now) beside its fader; K1-K4 set the faders,
+ * white keys 1-4 mute and 9-12 solo. */
 static __attribute__((noinline)) void mix_draw(const struct groove_view v[8])
 {
-    if (paint_rendering && (paint_top >= 184 || paint_top + PAINT_ROWS <= 32)) return;
-    unsigned bank = track / 4;
-    if (cache->title_cache != bank) {
-        cache->title_cache = bank;
-        paint_fill(0, 32, 240, 33, BACK);
-        text(8, 35, "MIX  4 LAYERS", 1, TEXT, BACK);
-        text(8, 51, "KEYS 1-4 MUTE  9-12 SOLO", 1, DIM, BACK);
+    if (paint_rendering && (paint_top >= 192 || paint_top + PAINT_ROWS <= 32)) return;
+    if (cache->title_cache != 9100U) {
+        cache->title_cache = 9100U;
+        paint_fill(0, 32, 240, 160, BACK);
+        text(8, 36, "HOME", 1, DIM, BACK);
+        text(40, 34, "MIXER", 2, ACCENT, BACK);
     }
-#if FM1_OPEN_WEB
-    unsigned probe = 0xffU;
-#else
-    unsigned probe = fm1_panel_probe();
-#endif
-    if (cache->tile_cache[15] != probe) { /* button test: press SELECT to see if it is wired */
-        cache->tile_cache[15] = probe;
-        paint_fill(150, 32, 90, 12, BACK);
-        text(150, 35, "TEST", 1, DIM, BACK);
-        char code[3] = "--";
-        if (probe != 0xffU) { static const char hex[] = "0123456789ABCDEF"; code[0] = hex[probe >> 4]; code[1] = hex[probe & 15U]; }
-        text(180, 35, code, 1, probe != 0xffU ? GREEN : DIM, BACK);
-    }
-    for (unsigned i = 0; i < 8; ++i) { /* top row mutes, bottom row solos */
-        unsigned t = i & 3U, on = i < 4 ? v[t].muted : v[t].solo;
+    for (unsigned t = 0; t < 4; ++t) {
+        unsigned x = 8 + 57 * t, on = t == track;
         const char *lush = lush_track_name(t);
-        uint32_t sig = (on | ((t == track) << 1)) ^ (uint32_t)(uintptr_t)lush;
-        if (sig == cache->tile_cache[i])
-            continue;
-        cache->tile_cache[i] = sig;
-        unsigned x = 8 + (i % 4) * 57, y = 70 + (i / 4) * 54;
-        uint16_t bg = on ? colors[t] : PANEL;
-        paint_fill(x, y, 53, 48, bg);
-        if (t == track)
-            frame(x, y, 53, 48, TEXT);
-        text(x + 6, y + 6, i < 4 ? "MUTE" : "SOLO", 1, on ? BACK : DIM, bg);
-        number(x + 40, y + 6, t + 1, 1, 1, on ? BACK : colors[t], bg);
-        char word[9] = {0};
-        for (unsigned n = 0; lush && lush[n] && lush[n] != ' ' && n < 8; ++n) word[n] = lush[n];
-        text(x + 3, y + 30, word, 1, on ? BACK : colors[t], bg);
+        uint32_t sig = (uint32_t)v[t].volume | (v[t].muted << 8) | (v[t].solo << 9) | (on << 10);
+        sig ^= (uint32_t)(uintptr_t)lush << 11;
+        if (sig != cache->tile_cache[t]) {
+            cache->tile_cache[t] = sig;
+            cache->meter_cache[t] = ~0U;
+            paint_fill(x, 56, 53, 134, on ? PANEL : BACK);
+            paint_fill(x, 56, 53, 2, on ? colors[t] : DIM);
+            char word[9] = {0};
+            for (unsigned n = 0; lush && lush[n] && lush[n] != ' ' && n < 8; ++n) word[n] = lush[n];
+            text(x + 3, 62, word, 1, v[t].muted ? DIM : colors[t], on ? PANEL : BACK);
+            if (on) text(x + 4, 62, word, 1, v[t].muted ? DIM : colors[t], INK);
+            /* fader: a slot and a cap at this voice's volume */
+            paint_fill(x + 38, 78, 3, 100, DIM);
+            unsigned cap = 176U - v[t].volume * 96U / 127U;
+            paint_fill(x + 33, cap - 2, 13, 5, TEXT);
+            text(x + 3, 182, v[t].muted ? "MUTE" : v[t].solo ? "SOLO" : "", 1, v[t].muted ? AMBER : GREEN, on ? PANEL : BACK);
+        }
+        /* live level: twenty segments, at most five updates a second */
+        unsigned level = lush ? lush_track_level(t) : v[t].audible ? v[t].level : 0U;
+        unsigned lit = (level * 20U + 63U) / 127U;
+        static uint32_t at[4];
+        if (!paint_rendering && lit != cache->meter_cache[t] && cache->meter_cache[t] != ~0U && frame_time - at[t] < 200U)
+            lit = cache->meter_cache[t];
+        if (lit != cache->meter_cache[t]) {
+            if (!paint_rendering) at[t] = frame_time;
+            cache->meter_cache[t] = lit;
+            for (unsigned seg = 0; seg < 20; ++seg)
+                paint_fill(x + 6, 174 - 5 * seg, 18, 4, seg < lit ? (seg >= 17 ? AMBER : colors[t]) : on ? BACK : PANEL);
+        }
     }
 }
 static void radio_line(unsigned slot, unsigned y, const char *value, uint16_t color)
