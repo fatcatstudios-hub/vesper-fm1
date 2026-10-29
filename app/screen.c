@@ -196,7 +196,7 @@ static uint8_t midi_active[8];
 static unsigned track, cursor, selected_note = 60, drum, writing, page, fm_group, op;
 static unsigned music_page, subpage_return, project_return, rec_before_press, effects_page;
 static unsigned seq_page, arp_page;
-static unsigned boot_active, boot_phase;
+static unsigned boot_active, boot_phase, boot_waiting;
 static uint32_t boot_started;
 static const char *const seq_pages[] = {"1/8 BASIC", "2/8 STEP DETAILS", "3/8 RHYTHM/REC", "4/8 LOCKS", "5/8 SYNC / LOOP", "6/8 MIDI TRACK", "7/8 MIDI ROUTING", "8/8 TRACK ROLE"};
 static unsigned rec_down, rec_used;
@@ -1425,7 +1425,8 @@ enum { BOOT_X = 120, BOOT_Y = 90, BOOT_TICKS = 90 };
 static __attribute__((noinline, cold, minsize)) void boot_draw(void)
 {
     static const uint8_t radius[4] = {24, 40, 56, 72};
-    static const char title[] = "WORSHIP";
+    static const char title[] = FIRMWARE_NAME;
+    enum { LEN = sizeof title - 1, STEP = 20, LEFT = (240 - STEP * LEN + 2) / 2 };
     unsigned tick = boot_phase;
     if (cache->title_cache != 0) {
         cache->title_cache = 0;
@@ -1455,15 +1456,15 @@ static __attribute__((noinline, cold, minsize)) void boot_draw(void)
     }
     /* Title letters, then the version once the word is complete. */
     unsigned letters = tick < 22U ? 0U : (tick - 22U) / 2U + 1U;
-    if (letters > 7U) letters = 7U;
-    unsigned from = cache->hint_cache > 8U ? 0U : cache->hint_cache;
+    if (letters > LEN) letters = LEN;
+    unsigned from = cache->hint_cache > LEN ? 0U : cache->hint_cache;
     if (letters != cache->hint_cache) {
         /* The newest letter glows in the accent colour; earlier ones settle to white. */
         for (unsigned k = from ? from - 1U : 0U; k < letters; ++k) {
             char one[2] = {title[k], 0};
-            text(57 + 18 * k, 176, one, 3, k + 1U == letters && letters < 7U ? ACCENT : TEXT, BACK);
+            text(LEFT + STEP * k, 176, one, 3, k + 1U == letters && letters < LEN ? ACCENT : TEXT, BACK);
         }
-        if (letters == 7U)
+        if (letters == LEN)
             text((240 - 6 * (sizeof WORSHIP_VERSION - 1)) / 2, 202, WORSHIP_VERSION, 1, ACCENT, BACK);
         cache->hint_cache = letters;
     }
@@ -1548,7 +1549,7 @@ static void draw_page_body(const struct fm1_ble_status *ble)
             cache->middle_cache = 1U;
             paint_fill(0, 32, 240, 150, BACK);
             text(8, 60, "VOICE EDITING", 2, ACCENT, BACK);
-            text(8, 84, "ARRIVES IN WORSHIP 0.7", 1, DIM, BACK);
+            text(8, 84, "ARRIVES IN " FIRMWARE_NAME " 0.7", 1, DIM, BACK);
         }
 #else
         fm_draw(patch, &controls);
@@ -1739,7 +1740,8 @@ static void draw(const struct fm1_ble_status *ble)
     unsigned visible = glo_down && glo_used ? MIX : page;
     frame_time = fm1_millis();
     if (boot_active) {
-        boot_phase = (frame_time - boot_started) / 30U;
+        /* Hold the animation until the whole backdrop is on the glass. */
+        boot_phase = boot_waiting ? 0U : (frame_time - boot_started) / 30U;
         if (boot_phase > BOOT_TICKS) boot_phase = BOOT_TICKS;
     }
     if (notice && (int32_t)(frame_time - notice_until) >= 0) notice = NULL;
@@ -1949,7 +1951,7 @@ void groove_screen_init(void)
     for (unsigned key = 0; key < 41; ++key) fm1_led_set(key, 0);
     fm1_screen_init();
     boot_started = fm1_millis();
-    boot_active = 1;
+    boot_active = boot_waiting = 1;
     struct fm1_ble_status ble = {0};
     fm1_ble_get_status(&ble);
     draw(&ble);
@@ -2778,9 +2780,9 @@ void groove_screen_control(void)
                              encoder_active(controls.encoders);
     /* The logo never blocks control/audio or consumes the first gesture.
      * Ignore the initial MASTER ADC pickup when deciding whether to skip. */
-    if (boot_active && (now - boot_started >= 2700U || controls.buttons || controls.keys ||
+    if (boot_active && ((!boot_waiting && now - boot_started >= 2700U) || controls.buttons || controls.keys ||
         encoder_active(controls.encoders) || (master_changed && now - boot_started >= 150U))) {
-        boot_active = 0;
+        boot_active = boot_waiting = 0;
         input_changed = 1;
     }
     struct fm1_ble_status ble = {0};
@@ -2841,6 +2843,16 @@ void groove_screen_control(void)
         draw(&ble);
     }
     paint_flush();
+    if (boot_waiting) {
+        /* The full-screen backdrop paints over several polls; start the boot
+         * animation clock only once every band is on screen (3 s safety). */
+        unsigned clean = 1;
+        for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) clean = 0;
+        if ((clean && saved_cache.shown_page == STARTUP) || now - boot_started >= 3000U) {
+            boot_waiting = 0;
+            boot_started = now;
+        }
+    }
 }
 
 void groove_screen_mmc(unsigned command)
@@ -2870,7 +2882,7 @@ unsigned groove_screen_preset_position(void)
 int groove_screen_open(unsigned target)
 {
     if (target > ARP_EDIT || target == PROJECT) return -1;
-    boot_active = 0;
+    boot_active = boot_waiting = 0;
     unsigned quick = target == FM_QUICK;
     if (quick && groove_source_type(track) != GROOVE_DX7) target = TONE_EDIT;
     if ((target == FM_EDIT || target == NAME) &&

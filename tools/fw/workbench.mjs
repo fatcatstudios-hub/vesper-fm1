@@ -13,6 +13,7 @@ const text = (f) => read(f).toString('utf8');
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const version = /^#define FM1_RELEASE_VERSION "(V\d+)"\s*$/m.exec(text('app/version.h'))[1];
 const worship = /^#define WORSHIP_VERSION "([0-9.]+)"/m.exec(text('app/version.h'))[1];
+const fwName = /^#define FIRMWARE_NAME "([A-Z0-9 ]+)"/m.exec(text('app/version.h'))[1];
 const product = /^#define FM1_UPDATE_PRODUCT "(FM-1_8\d{6})"/m.exec(text('app/version.h'))[1];
 const identity = JSON.parse(text('build/dx7/build-identity.json'));
 const firmware = read('build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc');
@@ -34,7 +35,7 @@ const sourceUrl = process.env.FM1_SOURCE_URL || '';
 let web = text('sdk/Update.html.in');
 const label = "pkg.kind==='stock'?'原厂 V15（FM-1_015）':'官方 Open 固件'";
 if (!web.includes(label)) throw new Error('Updater page label not found.');
-web = web.replace(label, `pkg.kind==='stock'?'原厂 V15（FM-1_015）':'WORSHIP ${worship}'`);
+web = web.replace(label, `pkg.kind==='stock'?'原厂 V15（FM-1_015）':'${fwName} ${worship}'`);
 if (!sourceUrl) web = web.replace(/<a\b[^>]*href="\/\*FM1_SOURCE_URL\*\/"[^>]*>(.*?)<\/a>/g, '<span>$1 (local build)</span>');
 const html = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const notices = [`APP: GPLv3 with the FM1 SDK linking exception; no warranty. SDK and firmware resources have separate redistribution terms in THIRD_PARTY.md. Source: ${sourceUrl || 'local build'}`,
@@ -50,7 +51,7 @@ const replacements = {
 };
 for (const [k, v] of Object.entries(replacements)) web = web.split(k).join(v);
 if (/\/\*FM1_[A-Z_]+\*\//.test(web)) throw new Error('Unexpanded HTML placeholder.');
-const out = process.argv[2] || path.join(root, `build/official-web/FM1-WORSHIP-${worship}-Updater.html`);
+const out = process.argv[2] || path.join(root, `build/official-web/FM1-${fwName}-${worship}-Updater.html`);
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, web);
-console.log(`WORSHIP ${worship} workbench: ${out} (${(web.length / 1048576).toFixed(1)} MiB), firmware ${pkg.sha256.slice(0, 12)}, build ${pkg.build_id.slice(0, 12)}`);
+console.log(`${fwName} ${worship} workbench: ${out} (${(web.length / 1048576).toFixed(1)} MiB), firmware ${pkg.sha256.slice(0, 12)}, build ${pkg.build_id.slice(0, 12)}`);
