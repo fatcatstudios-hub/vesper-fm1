@@ -45,6 +45,7 @@ static const struct { int16_t x, y; int32_t r2, inv; uint8_t r, g, b; } glows[3]
     {140, 140,  90 *  90, 16777216 / ( 90 *  90), 3, 2, 3},   /* rose haze, centre */
 };
 /* Indigo to violet, top to bottom, dithered against banding, with three soft glows. */
+static unsigned flat_backdrop; /* GLO test switch: gradient without the glows */
 static uint16_t frost(unsigned x, unsigned y, unsigned glass)
 {
     /* Same pixels as before, computed faster: fills run left to right, so the
@@ -66,7 +67,7 @@ static uint16_t frost(unsigned x, unsigned y, unsigned glass)
     last_x = x; carried = 1;
     unsigned dither = (x ^ y) & 1U;
     int r = base_r, g = base_g + (int)dither, b = base_b[dither];
-    for (unsigned i = 0; i < 3; ++i) {
+    for (unsigned i = 0; i < 3 && !flat_backdrop; ++i) {
         int d2 = dist[i];
         if (d2 >= glows[i].r2) continue;
         int w = (int)((uint32_t)(glows[i].r2 - d2) * (uint32_t)glows[i].inv >> 16);
@@ -1584,10 +1585,10 @@ static unsigned vesper_bar(unsigned id)
 }
 /* GLO: global settings. SELECT picks a row, K1 changes it. */
 enum { G_CLOCK, G_CLOCK_IN, G_CLOCK_OUT, G_MIDI_OUT, G_KEYS_OUT, G_LOCAL, G_THRU_IN, G_THRU_OUT,
-       G_BLUETOOTH, G_SWING, G_CLICK, G_BATTERY, G_PAGE_DRAW, G_PAINT, G_DECIDE, G_PASSES, G_VERSION, G_ROWS };
+       G_BLUETOOTH, G_SWING, G_CLICK, G_BATTERY, G_PAGE_DRAW, G_PAINT, G_DECIDE, G_PASSES, G_BACKDROP, G_FX_TEST, G_VERSION, G_ROWS };
 static const char *const global_names[G_ROWS] = {"CLOCK", "CLOCK IN", "CLOCK OUT", "MIDI OUT", "KEYS TO MIDI",
     "LOCAL SOUND", "THRU FROM", "THRU TO", "BLUETOOTH", "SWING", "CLICK", "BATTERY", "PAGE DRAW",
-    "  PAINTING", "  DECIDING", "  PASSES/BANDS", "VERSION"};
+    "  PAINTING", "  DECIDING", "  PASSES/BANDS", "TEST: GLOWS", "TEST: SOUND FX", "VERSION"};
 static __attribute__((noinline)) void global_value(unsigned row, char out[12])
 {
     static const char *const ports[] = {"OFF", "DIN", "USB", "DIN+USB", "BLE", "DIN+BLE", "USB+BLE", "ALL"};
@@ -1609,6 +1610,8 @@ static __attribute__((noinline)) void global_value(unsigned row, char out[12])
     case G_PAINT: decimal(out, (int)page_diag[0], 1); strcat(out, " MS"); break;
     case G_DECIDE: decimal(out, (int)page_diag[1], 1); strcat(out, " MS"); break;
     case G_PASSES: { char b[6]; decimal(out, (int)page_diag[2], 1); strcat(out, "/"); decimal(b, (int)page_diag[3], 1); strcat(out, b); } break;
+    case G_BACKDROP: strcpy(out, flat_backdrop ? "OFF" : "ON"); break;
+    case G_FX_TEST: strcpy(out, lush_fx_bypassed() ? "OFF" : "ON"); break;
     case G_VERSION: strcpy(out, SHOWN_VERSION); break;
     default: strcpy(out, v ? "ON" : "OFF");
     }
@@ -1625,6 +1628,8 @@ static void global_edit(unsigned row, int delta)
         flags = delta > 0 ? flags | GROOVE_RADIO_ON : flags & ~(unsigned)GROOVE_RADIO_ON;
         if (flags != groove_settings_radio_flags()) (void)groove_settings_radio(flags, groove_settings_role_value());
     } else if (row == G_SWING || row == G_CLICK) groove_sequence_setting_edit(row == G_SWING ? 0 : 1, delta);
+    else if (row == G_BACKDROP) { flat_backdrop = delta < 0; saved_cache.shown_page = ~0U; } /* redraw to show it */
+    else if (row == G_FX_TEST) lush_fx_bypass(delta < 0);
 }
 static __attribute__((noinline)) void global_draw(void)
 {
@@ -1960,6 +1965,7 @@ static void draw_page_body(const struct fm1_ble_status *ble)
             label = labels[t];
             color = colors[t];
             decimal(value, views[t].volume, 1);
+#if !WORSHIP_SLIM /* stock tone / DX7 editor footers: those pages are not reachable in VESPER */
         } else if (visible == TONE_EDIT || (visible == FM_ENV && v->type != GROOVE_DX7)) {
             unsigned parameter = tone_parameter(col);
             const fm1_param_t *p = groove_tone_parameter(track, tone_part(), parameter);
@@ -1998,6 +2004,7 @@ static void draw_page_body(const struct fm1_ble_status *ble)
                                             : parameter == 144 ? -24
                                                                : 0),
                         1);
+#endif
         } else {
             static const char *const labels[4] = {"LEVEL", "STEP", "NOTE", "BPM"};
             label = labels[col];

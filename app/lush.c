@@ -1026,6 +1026,9 @@ void lush_live_note(unsigned track, unsigned note, unsigned velocity)
     live_queue[w & 15U] = track | note << 8 | (velocity > 127 ? 127U : velocity) << 16;
     live_write = (uint8_t)(w + 1U);
 }
+static volatile uint8_t fx_bypass;
+void lush_fx_bypass(unsigned on) { fx_bypass = on != 0; }
+unsigned lush_fx_bypassed(void) { return fx_bypass; }
 LUSH_CODE void lush_render(int32_t *output)
 {
     while (live_read != live_write) {
@@ -1058,6 +1061,13 @@ LUSH_CODE void lush_render(int32_t *output)
             render_voice(&voices[i]); voicing = 1;
         }
     if (!any && !voicing) return; /* effects tails are allowed to stop with the engine */
+    if (fx_bypass) { /* GLO test switch: dry voices only, to measure what the effects cost */
+        for (unsigned j = 0; j < N; ++j) {
+            output[2 * j] += clamp15(bus_dry[2 * j] + bus_chorus[j]) << 8;
+            output[2 * j + 1] += clamp15(bus_dry[2 * j + 1] + bus_chorus[j]) << 8;
+        }
+        return;
+    }
 
     int32_t wet = fx_wet, feedback = fx_feedback;
     /* Dual-tap stereo delay, the classic two-delay worship guitar rig:
