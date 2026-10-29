@@ -6,10 +6,10 @@
 #define VESPER_TEST 0
 #endif
 #ifndef VESPER_START_SCENE
-#define VESPER_START_SCENE VESPER_TEST /* not proven on hardware yet */
+#define VESPER_START_SCENE 1 /* proven on hardware in 0.7.23 */
 #endif
 #ifndef VESPER_FAST_PAGES
-#define VESPER_FAST_PAGES VESPER_TEST /* not proven on hardware yet */
+#define VESPER_FAST_PAGES 1 /* proven on hardware in 0.7.23 */
 #endif
 /* A TEST build (spare unit only) says so on its boot screen. */
 #if VESPER_TEST
