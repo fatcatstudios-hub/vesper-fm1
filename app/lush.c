@@ -132,7 +132,7 @@ static volatile uint32_t beat_inc = 0;    /* per-sample step of a 16-beat (4-bar
 static volatile int32_t fx_shimmer = 0;   /* Q15 */
 /* VESPER master FX (0.8), set by lush_master(): CLOUD, TAPE and DIRT pages. */
 static volatile int32_t fx_tone = 0, fx_width = 32768, fx_chorus = 19661;
-static volatile int32_t fx_wow = 0, fx_flutter = 0, fx_sat = 0, fx_age = 32767, fx_hiss = 0;
+static volatile int32_t fx_hp = 0, fx_lp = 32767, fx_sat = 0, fx_age = 32767, fx_hiss = 0;
 static volatile int32_t fx_drive = 0, fx_crush = 0, fx_hold = 1, fx_dirt_mix = 32767;
 static volatile int32_t fx_drive_gain = 256, fx_drive_comp = 32767, fx_sat_comp = 32767; /* gain Q8, make-up Q15 */
 static uint32_t beat_phase;
@@ -243,15 +243,30 @@ __attribute__((minsize)) int lush_voice_import(unsigned track, const uint8_t *in
     layer[track].patch = in[2];
     return 0;
 }
-/* VESPER master FX. v: shimmer, tone, width, chorus | wow, flutter, saturate,
+/* TAPE page filters: HI PASS 20 Hz .. 2.6 kHz, LO PASS 300 Hz .. open,
+ * exponential across the knob. */
+__attribute__((minsize)) unsigned lush_filter_hz(unsigned low_pass, unsigned v)
+{
+    uint32_t hz = low_pass ? 300U << 8 : 20U << 8, step = low_pass ? 265U : 266U; /* Q8 ratios ~1.035 / ~1.039 */
+    for (unsigned i = 0; i < v && i < 127U; ++i) hz = (hz * step) >> 8;
+    return hz >> 8;
+}
+/* One-pole coefficient (Q15) for a cutoff at 44.1 kHz: ~2*pi*f/fs, eased near the top. */
+static __attribute__((minsize)) int32_t filter_coefficient(unsigned hz)
+{
+    uint32_t a = hz * 4669U / 1000U;              /* 2*pi*32768/44100 = 4.669 */
+    if (a > 16384U) a = 16384U + (a - 16384U) / 3U;
+    return a > 32767U ? 32767 : (int32_t)a;
+}
+/* VESPER master FX. v: shimmer, tone, width, chorus | hi pass, lo pass, saturate,
  * age | drive, bits, rate, mix; each 0..127 (64 = neutral for tone, width, chorus). */
 __attribute__((minsize)) void lush_master(const uint8_t v[LUSH_MASTER_PARAMS])
 {
     fx_tone = ((int32_t)64 - v[1]) * 120;               /* + darker, - brighter */
     fx_width = (int32_t)v[2] * 512;                     /* 64 -> 1.0, 127 -> ~2.0 */
     fx_chorus = (int32_t)v[3] * 307;                    /* 64 -> today's mix */
-    fx_wow = (int32_t)v[4] * 180;                       /* up to ~89 samples of slow drift (Q8), ~0.5 % pitch */
-    fx_flutter = (int32_t)v[5] * 4;                     /* up to ~2 samples of fast shake (Q8) */
+    fx_hp = v[4] ? filter_coefficient(lush_filter_hz(0, v[4])) : 0;       /* HI PASS, 0 = off */
+    fx_lp = v[5] < 127 ? filter_coefficient(lush_filter_hz(1, v[5])) : 32767; /* LO PASS, 127 = off */
     fx_sat = (int32_t)v[6] * 4;                         /* drive into the tape curve */
     fx_age = 32767 - (int32_t)v[7] * 220;               /* darker as it ages */
     fx_hiss = (int32_t)v[7] * v[7] / 64;                /* and a little hiss */
@@ -268,7 +283,7 @@ __attribute__((minsize)) void lush_effects(const uint8_t fx[4], unsigned delay_t
     lush_tables_build();
     if (tempo >= 30 && tempo <= 300)
         beat_inc = (uint32_t)(((uint64_t)tempo << 32) / (60ULL * 44100ULL * 16ULL));
-    fx_shimmer = (int32_t)(shimmer > 127 ? 127 : shimmer) * 150;   /* 0 .. 0.58 */
+    fx_shimmer = (int32_t)(shimmer > 127 ? 127 : shimmer) * 180;   /* 0 .. 0.70: band-limited, so it can bloom */
     fx_decay = 15000 + (int32_t)fx[0] * 121;   /* 0.46 .. 0.93 */
     fx_damp = 13000 - (int32_t)fx[0] * 40 + fx_tone; /* longer tails are a touch brighter; CLOUD TONE darkens */
     if (fx_damp < 0) fx_damp = 0;
@@ -936,25 +951,41 @@ static int32_t rev_bandwidth, rev_lp_l, rev_lp_r, rev_prev[2], rev_out[2], rev_l
 /* Shimmer: an octave-up granular pitch shifter in the reverb's feedback, so
  * the tail keeps blooming upward. Two read heads sweep a 46 ms window at
  * double speed, crossfaded with triangles (half rate, 22.05 kHz). */
+/* Shimmer, in the spirit of the big studio shimmers: the reverb tail is
+ * band-limited (so nothing aliases or fizzes), shifted up an octave with long
+ * 93 ms grains at 11 kHz (smooth, no warble), and fed back into the tank, so
+ * octaves bloom slowly out of the tail and each pass gets softer, not harsher. */
 enum { SHIMMER_LEN = 2048, SHIMMER_WINDOW = 1024 };
 static int16_t shimmer_line[SHIMMER_LEN];
-static unsigned shimmer_write, shimmer_phase;
-static int32_t shimmer_lp, shimmer_hp;
+static unsigned shimmer_write, shimmer_phase, shimmer_odd;
+static int32_t shimmer_lp1, shimmer_lp2, shimmer_hp, shimmer_held, shimmer_prev, shimmer_y, shimmer_soft, shimmer_soft2;
 static inline LUSH_HOT int32_t shimmer_sample(int32_t input)
 {
-    shimmer_line[shimmer_write] = (int16_t)clamp15(input);
-    unsigned p1 = shimmer_phase, p2 = (shimmer_phase + SHIMMER_WINDOW / 2U) % SHIMMER_WINDOW;
+    /* 22 kHz in: ~2 kHz 12 dB low pass, ~180 Hz high pass, then every other sample. */
+    shimmer_lp1 += ((input - shimmer_lp1) * 14500) >> 15;
+    shimmer_lp2 += ((shimmer_lp1 - shimmer_lp2) * 14500) >> 15;
+    shimmer_hp += ((shimmer_lp2 - shimmer_hp) * 1640) >> 15;
+    int32_t x = shimmer_lp2 - shimmer_hp;
+    int32_t up;
+    if ((shimmer_odd ^= 1U)) { shimmer_held = x; up = shimmer_y; } /* linear interpolation, one sample late */
+    else {
+        shimmer_line[shimmer_write] = (int16_t)clamp15((shimmer_held + x) >> 1);
+        unsigned p1 = shimmer_phase, p2 = (shimmer_phase + SHIMMER_WINDOW / 2U) % SHIMMER_WINDOW;
     unsigned d1 = SHIMMER_WINDOW - p1 + 2U, d2 = SHIMMER_WINDOW - p2 + 2U;
     int32_t a = shimmer_line[(shimmer_write + SHIMMER_LEN - d1) & (SHIMMER_LEN - 1U)];
     int32_t b = shimmer_line[(shimmer_write + SHIMMER_LEN - d2) & (SHIMMER_LEN - 1U)];
     int32_t sn = sine15((uint32_t)p1 << 21);                      /* sin(pi * p1 / W) */
-    int32_t g1 = (sn * sn) >> 15;                                  /* sin^2: smooth grain edges */
+    int32_t g1 = (sn * sn) >> 15;                                  /* sin^2 grains always sum to one */
     int32_t y = (a * g1 + b * (32768 - g1)) >> 15;
     shimmer_write = (shimmer_write + 1U) & (SHIMMER_LEN - 1U);
     if (++shimmer_phase == SHIMMER_WINDOW) shimmer_phase = 0;
-    shimmer_lp += ((y - shimmer_lp) * 16000) >> 15;          /* soften grain edges */
-    shimmer_hp += ((shimmer_lp - shimmer_hp) * 2600) >> 15;  /* keep only the sparkle */
-    return shimmer_lp - shimmer_hp;
+    shimmer_prev = shimmer_y; shimmer_y = y;
+    up = (shimmer_prev + y) >> 1;
+    }
+    /* back at 22 kHz: ~4 kHz 12 dB low pass removes the images of the 11 kHz shifter */
+    shimmer_soft += ((up - shimmer_soft) * 22300) >> 15;
+    shimmer_soft2 += ((shimmer_soft - shimmer_soft2) * 22300) >> 15;
+    return shimmer_soft2;
 }
 static uint32_t rev_lfo;
 static inline LUSH_HOT int32_t tap(const struct line *l, unsigned n)
@@ -1057,10 +1088,10 @@ static inline LUSH_HOT int32_t soft_limit(int32_t x)
 }
 
 /* ---- VESPER master FX, in chain order DIRT -> TAPE -> CLOUD -> SPACE (CLOUD width last).
- * DIRT (drive, bit crush, sample hold) and TAPE (wow, flutter, saturation,
- * age) run on every bus before the delay, reverb and chorus see it, so echoes
- * and tails repeat the dirt and the wobble. CLOUD's width is last. Each part
- * is skipped at its neutral value. */
+ * DIRT (drive, bit crush, sample hold) and TAPE (hi pass, lo pass, saturation,
+ * age) run on every bus before the chorus, delay and reverb see it, so echoes
+ * and tails repeat the dirt and the filtering. Each part is skipped at its
+ * neutral value. */
 static inline LUSH_HOT int32_t soft_clip(int32_t x)
 {   /* 1.5x - 0.5x^3 inside +-1 (Q15), flat outside */
     x = clamp15(x);
@@ -1068,31 +1099,25 @@ static inline LUSH_HOT int32_t soft_clip(int32_t x)
     return (3 * x - ((x2 * x) >> 15)) >> 1;
 }
 enum { PRE_BUSES = 5 }; /* dry L, dry R, chorus, delay send, reverb send */
-static int16_t tape_line[PRE_BUSES][256];
-static int32_t age_lp[PRE_BUSES], hold_v[PRE_BUSES], pre_back[N];
-static uint8_t pre_take[N], tape_write;
-static uint32_t wow_phase, flutter_phase, hiss_seed = 1, hold_count;
+static int32_t age_lp[PRE_BUSES], hold_v[PRE_BUSES], filt[PRE_BUSES][4];
+static uint8_t pre_take[N];
+static uint32_t hiss_seed = 1, hold_count;
 static inline LUSH_HOT void pre_fx(void)
 {
     const int32_t g = fx_drive_gain, dc = fx_drive_comp, crush = fx_crush, hold = fx_hold, mixd = fx_dirt_mix;
-    const int32_t wow = fx_wow, flut = fx_flutter, sat = fx_sat, sc = fx_sat_comp, age = fx_age, hiss = fx_hiss;
-    const int drive_on = g != 256, dirt_on = drive_on || crush || hold > 1, tape_on = wow || flut;
-    if (!dirt_on && !tape_on && !sat && age >= 32767) return;
-    for (unsigned j = 0; j < N; ++j) { /* shared tape motion and hold clock */
-        if (tape_on) {
-            wow_phase += 39000U;       /* ~0.4 Hz at 44.1 kHz */
-            flutter_phase += 642000U;  /* ~6.6 Hz */
-            pre_back[j] = (128 << 8) + ((sine15(wow_phase) * wow) >> 15) + ((sine15(flutter_phase) * flut) >> 15); /* Q8 */
+    const int32_t hp = fx_hp, lp = fx_lp, sat = fx_sat, sc = fx_sat_comp, age = fx_age, hiss = fx_hiss;
+    const int drive_on = g != 256, dirt_on = drive_on || crush || hold > 1, filter_on = hp || lp < 32767;
+    if (!dirt_on && !filter_on && !sat && age >= 32767) return;
+    if (hold > 1)
+        for (unsigned j = 0; j < N; ++j) { /* shared hold clock */
+            pre_take[j] = 0;
+            if (++hold_count >= (uint32_t)hold) { hold_count = 0; pre_take[j] = 1; }
         }
-        pre_take[j] = 0;
-        if (++hold_count >= (uint32_t)hold) { hold_count = 0; pre_take[j] = 1; }
-    }
     for (unsigned c = 0; c < PRE_BUSES; ++c) {
         int32_t *p = c < 2 ? bus_dry + c : c == 2 ? bus_chorus : c == 3 ? bus_delay : bus_reverb;
         const unsigned stride = c < 2 ? 2U : 1U;
-        int16_t *line = tape_line[c];
-        int32_t held = hold_v[c], lp = age_lp[c];
-        uint8_t w = tape_write;
+        int32_t held = hold_v[c], aged = age_lp[c];
+        int32_t h1 = filt[c][0], h2 = filt[c][1], l1 = filt[c][2], l2 = filt[c][3];
         for (unsigned j = 0; j < N; ++j, p += stride) {
             int32_t x = *p;
             if (dirt_on) {
@@ -1102,20 +1127,18 @@ static inline LUSH_HOT void pre_fx(void)
                 if (hold > 1) { if (pre_take[j]) held = d; d = held; }
                 x += ((d - x) * mixd) >> 15;
             }
-            if (tape_on) {
-                line[w] = (int16_t)clamp15(x);
-                unsigned back = (unsigned)pre_back[j], whole = back >> 8, frac = back & 255U;
-                uint8_t i0 = (uint8_t)(w - whole), i1 = (uint8_t)(i0 - 1U);
-                x = line[i0] + (((line[i1] - line[i0]) * (int32_t)frac) >> 8);
-                ++w;
+            if (hp) { /* 12 dB/oct: two one-pole high passes */
+                h1 += ((x - h1) * hp) >> 15; x -= h1;
+                h2 += ((x - h2) * hp) >> 15; x -= h2;
             }
+            if (lp < 32767) { l1 += ((x - l1) * lp) >> 15; l2 += ((l1 - l2) * lp) >> 15; x = l2; }
             if (sat) x = (soft_clip((x * (256 + sat)) >> 8) * sc) >> 15;
-            if (age < 32767) { lp += ((x - lp) * age) >> 15; x = lp; }
+            if (age < 32767) { aged += ((x - aged) * age) >> 15; x = aged; }
             *p = x;
         }
-        hold_v[c] = held; age_lp[c] = lp;
+        hold_v[c] = held; age_lp[c] = aged;
+        filt[c][0] = h1; filt[c][1] = h2; filt[c][2] = l1; filt[c][3] = l2;
     }
-    if (tape_on) tape_write = (uint8_t)(tape_write + N);
     if (hiss) /* tape hiss on the dry signal only */
         for (unsigned j = 0; j < N; ++j) {
             hiss_seed = hiss_seed * 1664525U + 1013904223U;

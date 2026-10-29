@@ -1555,7 +1555,7 @@ static __attribute__((noinline)) const char *vesper_label(unsigned id)
         "F ATTACK", "F DECAY", "F SUST", "F REL", "RATE", "FILTER", "AUTOPAN", "DRIFT",
         "WIDTH", "BRIGHT", "RING", "VEL", "GAIN", "OCTAVE"};
     static const char *const fx[16] = {"DECAY", "TIME", "ECHO", "REVERB",
-        "SHIMMER", "TONE", "WIDTH", "CHORUS", "WOW", "FLUTTER", "SATURATE", "AGE",
+        "SHIMMER", "TONE", "WIDTH", "CHORUS", "HI PASS", "LO PASS", "SATURATE", "AGE",
         "DRIVE", "BITS", "RATE", "MIX"};
     if (id >= VX_SPACE && id < VX_MASTER + 12) {
         if (id == VX_SPACE + 1 && groove_delay_synced(frame_effects[1])) return "DIVISION";
@@ -1586,6 +1586,17 @@ static __attribute__((noinline)) void vesper_value(unsigned id, char out[12])
             if (v == 64) { strcpy(out, "0"); return; }
             v -= 64;
             if (v > 0) { *out++ = '+'; }
+        }
+        if (id == VX_MASTER + 4 || id == VX_MASTER + 5) { /* TAPE filters show their cutoff */
+            if (id == VX_MASTER + 4 ? !v : v == 127) { strcpy(out, "OFF"); return; }
+            unsigned hz = lush_filter_hz(id == VX_MASTER + 5, (unsigned)v);
+            if (hz < 1000U) { decimal(out, (int)hz, 1); strcat(out, "HZ"); }
+            else {
+                decimal(out, (int)(hz / 1000U), 1);
+                if (hz < 10000U) { char d[4] = {'.', (char)('0' + hz / 100U % 10U), 0}; strcat(out, d); }
+                strcat(out, "K");
+            }
+            return;
         }
         if (id == VX_MASTER + 9 && v) v = 1 + v * 11 / 127; /* bits removed */
         decimal(out, v, 1);

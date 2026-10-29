@@ -506,11 +506,11 @@ static void overload_guard(void)
  * PSG whose preset data beyond its four parameters is otherwise unused. */
 static uint8_t pending[LAYERS][LUSH_VOICE_BYTES], pending_ok, loads, loads_seen = 0xff;
 static int8_t voice_scene = -2;
-/* Global FX (0.8): shimmer, tone, width, chorus | wow, flutter, saturate, age |
- * drive, bits, rate, mix. Saved after the first layer's voice blob as 'X', 1, values. */
+/* Global FX (0.8): shimmer, tone, width, chorus | hi pass, lo pass, saturate, age |
+ * drive, bits, rate, mix. Saved after the first layer's voice blob as 'X', 2, values (1 had wow/flutter). */
 enum { FX_AT = 4 + LUSH_VOICE_BYTES };
-static const uint8_t fx_neutral[LUSH_MASTER_PARAMS] = {0, 64, 64, 64, 0, 0, 0, 0, 0, 0, 0, 127};
-static uint8_t master_fx[LUSH_MASTER_PARAMS] = {0, 64, 64, 64, 0, 0, 0, 0, 0, 0, 0, 127};
+static const uint8_t fx_neutral[LUSH_MASTER_PARAMS] = {0, 64, 64, 64, 0, 127, 0, 0, 0, 0, 0, 127};
+static uint8_t master_fx[LUSH_MASTER_PARAMS] = {0, 64, 64, 64, 0, 127, 0, 0, 0, 0, 0, 127};
 static uint8_t fx_pending[LUSH_MASTER_PARAMS], fx_pending_ok;
 unsigned vesper_fx_get(unsigned i) { return i < LUSH_MASTER_PARAMS ? master_fx[i] : 0U; }
 void vesper_fx_edit(unsigned i, int delta)
@@ -529,7 +529,7 @@ void vesper_project_store(struct groove_project *p)
             (void)lush_voice_export(t, p->preset[t].data + 4);
             if (!fx_saved) {
                 uint8_t *at = p->preset[t].data + FX_AT;
-                at[0] = 'X'; at[1] = 1; memcpy(at + 2, master_fx, LUSH_MASTER_PARAMS);
+                at[0] = 'X'; at[1] = 2; memcpy(at + 2, master_fx, LUSH_MASTER_PARAMS);
                 fx_saved = 1;
             }
         }
@@ -542,7 +542,7 @@ void vesper_project_loading(const struct groove_project *p)
             memcpy(pending[t], p->preset[t].data + 4, LUSH_VOICE_BYTES);
             pending_ok |= (uint8_t)(1U << t);
             const uint8_t *at = p->preset[t].data + FX_AT;
-            if (!fx_pending_ok && at[0] == 'X' && at[1] == 1) {
+            if (!fx_pending_ok && at[0] == 'X' && at[1] == 2) {
                 for (unsigned i = 0; i < LUSH_MASTER_PARAMS; ++i) fx_pending[i] = at[2 + i] > 127 ? 127 : at[2 + i];
                 fx_pending_ok = 1;
             }
