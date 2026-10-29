@@ -817,9 +817,14 @@ void groove_project_poll(void)
         if (r == FM1_FLASH_BUSY) return;
         session_pending = 1; if (r) settings_result = r;
     }
-    if (restore_pending && groove_project_load_slot(settings.slot) != FM1_FLASH_BUSY) {
-        restore_pending = 0;
-        groove_project_clean();
+    if (restore_pending) {
+        int r = groove_project_load_slot(settings.slot);
+        if (r != FM1_FLASH_BUSY) {
+            restore_pending = 0;
+            /* VESPER: power up on scene 1 unless the last saved project is a VESPER scene. */
+            if (r || !worship_chord_root()) (void)groove_factory_load(0);
+            groove_project_clean();
+        }
     }
     if (!restore_pending && session_pending) {
         int r = session_settings_load(0);
