@@ -140,3 +140,14 @@ Fork of M-VAVE's official **FM1 Open V14** (github.com/m-vave/fm1_open, GPLv3 + 
 - STAIRCASE, OCTAVE RUN and MORNING have the least headroom (15-20% idle). Trim them before flashing hardware.
 - Audio dropouts heard in the emulator are the host Mac failing to emulate 240 MHz in real time (load 90-130%), not the firmware.
 - Not yet checked: chord follow by ear in the emulator.
+
+## v2 CPU fix, emulator re-test (2026-10-29)
+
+- Cost probe (one sound per slot, 16ths): samples cost about 3 points of CPU each; synth voices 31-68 points; three basses 66. The cause was overlapping release tails, up to 16 synth voices at once.
+- Fix: mono basses, 3 notes per synth layer, 4 for strings, 6 for samples, 2 for reverse swells. Stolen notes fade in about 4 ms, and tails retire at -60 dB. Pause/stop now releases every note (a paused bass had hung).
+- CPU idle while playing, v2 (v1 figures in parentheses; the v1 sweep was partly unreliable):
+  - DOTTED 8TH 58 (41), ROLLING 3S 50 (41), STAIRCASE 58 (15), OCTAVE RUN 50 (17), GALLOP 48 (25), MORNING 56 (19-21)
+  - SANCTUARY 63, HEARTBEAT 62, GLORY BUILD 43, CASCADE 60, ANTHEM 8THS 37, QUIET PLACE 66
+  - SYNC LINES 57, SPIRIT MOVE 64, ALTAR CALL 63, NEON SKY 42
+- Lightest margin: ANTHEM 8THS, GLORY BUILD and NEON SKY (two stereo saw layers plus drums).
+- The emulator still drops audio on the host Mac in heavy scenes (host load above 100%). That is an emulator speed limit, not the firmware.
