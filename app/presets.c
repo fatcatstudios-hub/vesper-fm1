@@ -64,6 +64,22 @@ enum { D_HEART, D_FLOOR, D_HALF };
 /* No pads, no drones: every layer moves. Hybrid voices (synth or sample plus
  * a pitched-breath halo), tempo-locked filter motion and shimmer do the
  * atmosphere that pads used to. */
+#if WORSHIP_DIAG
+/* Cost probe: each slot plays one sound alone (16ths at 90 BPM, all notes, typical
+ * sends) so the emulator's idle figure gives that sound's CPU cost. Slot 16 holds
+ * the three basses together. Tracks 2-4 are muted except in slot 16. */
+#define T(name, patch) {name, 90, 4, 100,58,92, {LU(ARP,100,8,12), LU(BASS,100,1,0), LU(BASS,100,1,0), LU(BASS,100,1,0)}, \
+                        {S_CASCADE,B_PULSE16,B_PULSE16,B_PULSE16}, {patch,FM1_,FM1_,FM1_}, 15}
+static const struct scene scenes[GROOVE_FACTORY_PROJECTS] = {
+    T("T GLASS", GLS_), T("T DPLUCK", DPL_), T("T SUPERSAW", SAW_), T("T JUNO", JUN_),
+    T("T PIANO", PNO_), T("T MARIMBA", MAR_), T("T GLOCK", GLK_), T("T HALO", HAL_),
+    T("T HANDPAN", HPN_), T("T KALIMBA", KAL_), T("T VOX OOH", VOO_), T("T VOX EE", VEE_),
+    T("T MUTEDGTR", MGT_), T("T REVPIANO", RVP_), T("T REVGLOCK", RVG_),
+    {"T BASSES", 90, 4, 100,58,92, {LU(BASS,100,1,0), LU(BASS,100,1,0), LU(BASS,100,1,0), LU(BASS,100,1,0)},
+     {B_PULSE16,B_PULSE16,B_PULSE16,B_PULSE16}, {WBS_,DBS_,SUB_,FM1_}, 15},
+};
+#undef T
+#else
 static const struct scene scenes[GROOVE_FACTORY_PROJECTS] = {
     {"DOTTED 8TH",  72, 4,104,64,96, {LU(ARP,124,7,13), LU(LEAD,86,10,12), LU(BASS,98,1,2), LU(LEAD,74,13,10)},  {S_8THS,S_ROLL3,B_PULSE8,S_SWELL},         {MGT_,HAL_,DBS_,RVG_}, 15},
     {"ROLLING 3S",  76, 7,104,60,94, {LU(ARP,104,7,12), LU(LEAD,84,11,12), LU(BASS,96,1,0), DR(66)},              {S_ROLL3,S_SPARSE,B_HEART,D_HEART},       {DPL_,HPN_,WBS_,FM1_}, 20},
@@ -82,6 +98,7 @@ static const struct scene scenes[GROOVE_FACTORY_PROJECTS] = {
     {"ALTAR CALL",  62, 4,110,60,96, {LU(ARP,116,10,12), LU(ARP,116,10,12), LU(BASS,100,1,0), LU(LEAD,104,13,13)},    {S_SYNC,S_UPDOWN,B_DOTTED,S_SPARSE},      {HAL_,PNO_,WBS_,VOO_}, 30},
     {"NEON SKY",    92, 8, 94,56,90, {LU(ARP,84,6,11), LU(LEAD,72,8,12), LU(BASS,102,1,0), DR(72)},              {S_OCTAVES,S_CASCADE,B_PULSE16,D_FLOOR},  {SAW_,JUN_,DBS_,FM1_}, 10}
 };
+#endif
 #undef LU
 #undef DR
 #if WORSHIP_DX7_RECIPES /* unused by the worship scenes; off to save program Flash */
@@ -339,6 +356,9 @@ int groove_factory_build(unsigned index, struct groove_project *p)
     memset(p, 0, sizeof *p);
     memset(p->name, ' ', sizeof p->name); memcpy(p->name, s->name, strlen(s->name));
     p->tempo = s->bpm; p->mute = (uint8_t)(255U << LAYERS);
+#if WORSHIP_DIAG
+    p->mute |= index < 15 ? 0x0EU : 0x08U;
+#endif
     p->effects[0] = s->decay;
     p->effects[1] = GROOVE_DELAY_SYNC + 7U; /* tempo-synced dotted eighth */
     p->effects[2] = s->feedback; p->effects[3] = s->fx_level;

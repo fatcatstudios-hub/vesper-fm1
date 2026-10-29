@@ -20,7 +20,7 @@ PRODUCT=$(sed -n 's/^#define FM1_UPDATE_PRODUCT "\(FM-1_8[0-9]\{6\}\)".*/\1/p' "
 FLAGS=(-target pi32v2 -integrated-as -mcpu=r3 -mfprev1 -Wuninitialized -Wno-invalid-noreturn
   -fno-common -flto -fallow-pointer-null -fprefer-gnu-section -femulated-tls -Wno-shift-negative-value
   -Wframe-larger-than=2560 -fms-extensions -fno-unwind-tables -ffunction-sections -fdata-sections
-  -fmessage-length=0 -cl-single-precision-constant -mllvm -pi32v2-large-program=true -D__GCC_PI32V2__ -O2)
+  -fmessage-length=0 -cl-single-precision-constant -mllvm -pi32v2-large-program=true -D__GCC_PI32V2__ -O2 ${EXTRA_CFLAGS:-})
 for d in sdk/include sdk/include/libc app/synth sdk/config app app/board; do FLAGS+=("-I$ROOT/$d"); done
 
 OBJECTS=()
@@ -70,7 +70,7 @@ echo "Link with the prebuilt FM1 SDK"
   --end-group --gc-sections -Tgenerated/linker -M=sdk.map --undefined=connectivity_wl82_bluetooth_start \
   --undefined=audio_app_bluetooth_open --undefined=bt_get_local_name --undefined=bt_get_mac_addr
 
-python3 "$ROOT/tools/fw/check.py" "$BIN/nm" sdk.elf sdk.map
+python3 "$ROOT/tools/fw/check.py" "$BIN/nm" sdk.elf sdk.map ${CHECK_ARGS:-}
 for s in text data ram0_data cache_ram_data; do "$BIN/objcopy" -O binary -j ".$s" sdk.elf "generated/$s.bin"; done
 cat generated/text.bin generated/data.bin generated/ram0_data.bin generated/cache_ram_data.bin > generated/app.bin
 python3 "$ROOT/tools/fw/package.py" generated/app.bin "$ROOT/sdk/tools/pack" generated/FM1_OFFICIAL_OPEN.fwsc "$PRODUCT"

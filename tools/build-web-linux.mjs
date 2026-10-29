@@ -28,12 +28,12 @@ const sources = ['app', 'web', 'third_party/synth']
   .filter((n) => !n.startsWith('app/board/') && n.endsWith('.c'))
   .sort();
 
-const wasmPath = path.join(root, 'build/web/simulator.wasm');
+const wasmPath = process.env.SIM_OUT || path.join(root, 'build/web/simulator.wasm');
 fs.mkdirSync(path.dirname(wasmPath), { recursive: true });
 const options = [
   `--sysroot=${path.join(wasi, 'share/wasi-sysroot')}`,
   '-std=c11', '-O2', '-fwrapv', '-fno-fast-math', '-ffp-contract=off',
-  '-DFM1_HOST_TEST', '-DFM1_OPEN_WEB', '-Wall', '-Wextra', '-Werror',
+  '-DFM1_HOST_TEST', '-DFM1_OPEN_WEB', ...(process.env.EXTRA_CFLAGS || '').split(' ').filter(Boolean), '-Wall', '-Wextra', '-Werror',
   '-Wno-unused-function', '-Wno-array-parameter', '-mexec-model=reactor',
   ...['web/engine', 'web/synth', 'third_party/synth', 'sdk/include', 'app/synth', 'app']
     .map((d) => '-I' + path.join(root, d)),

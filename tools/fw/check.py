@@ -4,6 +4,7 @@ required callbacks present, LUSH audio code in SRAM. Usage: check.py <nm> sdk.el
 import re, struct, subprocess, sys
 
 nm, elf, mapfile = sys.argv[1:4]
+diag = '--diag' in sys.argv[4:]
 info = {}
 for line in subprocess.run([nm, '--print-size', elf], capture_output=True, text=True, check=True).stdout.splitlines():
     m = re.match(r'^([0-9a-fA-F]+)[ \t]+(([0-9a-fA-F]+)[ \t]+)?([A-Za-z])[ \t]+(\S+)', line)
@@ -31,7 +32,7 @@ for name in ['fm1_build_id', 'fm1_update_identity', 'fm1_app_sysex']:
 if info.get('fm1_build_id', (0, 0))[1] != 32:
     errors.append('fm1_build_id must be 32 bytes')
 # Worship scenes and LUSH patch names must be in the image (LTO may inline their functions).
-for marker in (b'DOTTED 8TH', b'QUIET PLACE', b'SANCTUARY', b'NEON SKY'):
+for marker in ((b'T GLASS', b'T BASSES') if diag else (b'DOTTED 8TH', b'QUIET PLACE', b'SANCTUARY', b'NEON SKY')):
     if marker not in data:
         errors.append(f'worship content missing from image: {marker.decode()}')
 heap = re.search(r'0x([0-9a-fA-F]+)[^\r\n]*_MALLOC_SIZE[ ]*=', open(mapfile).read())
