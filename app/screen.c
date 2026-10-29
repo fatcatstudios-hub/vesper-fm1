@@ -277,7 +277,10 @@ static unsigned seq_down;
 static uint32_t seq_ms;
 static unsigned arp_down, arp_long;
 static unsigned v_edit, v_filter_env, play_mode, v_global_row;
-static unsigned battery_adc = 900, page_draw_ms; /* smoothed battery ADC; last full page repaint */ /* VESPER page state; ARP = play mode */
+static unsigned battery_adc = 900, page_draw_ms; /* smoothed battery ADC; last full page repaint */
+/* GLO diagnostics for the last page change: ms painting bands, ms deciding what changed, passes, bands. */
+static unsigned diag_draw_ms, diag_flush_ms, diag_polls, diag_bands, page_diag[4];
+static unsigned poll_draw_ms, poll_flush_ms, poll_bands; /* VESPER page state; ARP = play mode */
 static uint32_t arp_ms;
 static char project_stored[13];
 static int project_stored_result;
@@ -1581,9 +1584,10 @@ static unsigned vesper_bar(unsigned id)
 }
 /* GLO: global settings. SELECT picks a row, K1 changes it. */
 enum { G_CLOCK, G_CLOCK_IN, G_CLOCK_OUT, G_MIDI_OUT, G_KEYS_OUT, G_LOCAL, G_THRU_IN, G_THRU_OUT,
-       G_BLUETOOTH, G_SWING, G_CLICK, G_BATTERY, G_PAGE_DRAW, G_VERSION, G_ROWS };
+       G_BLUETOOTH, G_SWING, G_CLICK, G_BATTERY, G_PAGE_DRAW, G_PAINT, G_DECIDE, G_PASSES, G_VERSION, G_ROWS };
 static const char *const global_names[G_ROWS] = {"CLOCK", "CLOCK IN", "CLOCK OUT", "MIDI OUT", "KEYS TO MIDI",
-    "LOCAL SOUND", "THRU FROM", "THRU TO", "BLUETOOTH", "SWING", "CLICK", "BATTERY", "PAGE DRAW", "VERSION"};
+    "LOCAL SOUND", "THRU FROM", "THRU TO", "BLUETOOTH", "SWING", "CLICK", "BATTERY", "PAGE DRAW",
+    "  PAINTING", "  DECIDING", "  PASSES/BANDS", "VERSION"};
 static __attribute__((noinline)) void global_value(unsigned row, char out[12])
 {
     static const char *const ports[] = {"OFF", "DIN", "USB", "DIN+USB", "BLE", "DIN+BLE", "USB+BLE", "ALL"};
@@ -1602,6 +1606,9 @@ static __attribute__((noinline)) void global_value(unsigned row, char out[12])
     case G_CLICK: strcpy(out, clicks[groove_sequence_setting(1) % 3U]); break;
     case G_BATTERY: decimal(out, (int)battery_adc, 1); strcat(out, " ADC"); break;
     case G_PAGE_DRAW: decimal(out, (int)page_draw_ms, 1); strcat(out, " MS"); break;
+    case G_PAINT: decimal(out, (int)page_diag[0], 1); strcat(out, " MS"); break;
+    case G_DECIDE: decimal(out, (int)page_diag[1], 1); strcat(out, " MS"); break;
+    case G_PASSES: { char b[6]; decimal(out, (int)page_diag[2], 1); strcat(out, "/"); decimal(b, (int)page_diag[3], 1); strcat(out, b); } break;
     case G_VERSION: strcpy(out, SHOWN_VERSION); break;
     default: strcpy(out, v ? "ON" : "OFF");
     }
@@ -3270,11 +3277,26 @@ void groove_screen_control(void)
     static uint32_t touched;
     if (input_changed) touched = now;
     unsigned frame_gap = now - touched < 1500U ? 33U : 66U;
+    poll_draw_ms = 0;
     if (now - frame_ms >= frame_gap || page != old_page || input_changed || saved_cache.shown_page == ~0U) {
         frame_ms = now;
+        uint32_t t0 = fm1_millis();
         draw(&ble);
+        poll_draw_ms = fm1_millis() - t0;
+        diag_draw_ms += poll_draw_ms;
     }
-    paint_flush();
+    {
+        unsigned before = 0, after = 0;
+        for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) ++before;
+        uint32_t t0 = fm1_millis();
+        paint_flush();
+        poll_flush_ms = fm1_millis() - t0;
+        diag_flush_ms += poll_flush_ms;
+        for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) ++after;
+        poll_bands = before > after ? before - after : 0;
+        if (before) ++diag_polls;
+        diag_bands += poll_bands;
+    }
     if (boot_waiting) {
         /* The full-screen backdrop paints over several polls; start the boot
          * animation clock only once every band is on screen (3 s safety). */
@@ -3290,8 +3312,14 @@ void groove_screen_control(void)
         static unsigned timing, shown = ~0U; static uint32_t since;
         unsigned clean = 1;
         for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) clean = 0;
-        if (saved_cache.shown_page != shown) { shown = saved_cache.shown_page; since = now; timing = 1; }
-        else if (timing && clean) { page_draw_ms = now - since; timing = 0; }
+        if (saved_cache.shown_page != shown) {
+            shown = saved_cache.shown_page; since = now; timing = 1;
+            /* this pass already painted part of the new page: count it */
+            diag_draw_ms = poll_draw_ms; diag_flush_ms = poll_flush_ms; diag_polls = 1; diag_bands = poll_bands;
+        } else if (timing && clean) {
+            page_draw_ms = now - since; timing = 0;
+            page_diag[0] = diag_flush_ms; page_diag[1] = diag_draw_ms; page_diag[2] = diag_polls; page_diag[3] = diag_bands;
+        }
     }
 #if VESPER_FAST_PAGES
     /* Faster page changes: while bands are still waiting, ask for the next
