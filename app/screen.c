@@ -614,14 +614,20 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
             number(ORBIT_X - 12, ORBIT_Y - 7, (int)first + 1, 2, 2, TEXT, BACK); /* page start */
         }
     }
+    /* Calm HOME: while the LCD still has a backlog (a page change, say), the
+     * moving parts wait, so the new page lands first. The rings hold still
+     * (first 16 steps); only the focused layer's ring carries the playhead. */
+    unsigned backlog = 0;
+    for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) ++backlog;
+    unsigned hold = !paint_rendering && backlog > 3;
     for (unsigned t = 0; t < LAYERS_SHOWN; ++t) {
         /* The rings: this layer's 16 steps around the circle. */
-        unsigned page = v[t].playing ? v[t].play_step / 16U * 16U : t == track ? first : 0U;
-        for (unsigned i = 0; i < 16; ++i) {
+        unsigned page = !v[t].playing && t == track ? first : 0U;
+        for (unsigned i = 0; i < 16 && !hold; ++i) {
             unsigned step = page + i;
             unsigned enabled = step < v[t].sequence_length;
             unsigned on = enabled && (unsigned)((v[t].active_steps >> step) & 1U);
-            unsigned head = v[t].playing && v[t].play_step == step;
+            unsigned head = v[t].playing && t == track && v[t].play_step % 16U == i;
             unsigned selected = enabled && t == track && step == cursor && !v[t].playing;
             uint32_t sig = on | (head << 1) | (selected << 2) | ((uint32_t)v[t].audible << 3) | (enabled << 4);
             if (sig == cache->cell_cache[t][i]) continue;
@@ -657,8 +663,11 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
             text(162, y + 10, state, 1, t == track ? TEXT : DIM, BACK);
         }
         unsigned level = lush ? lush_track_level(t) : v[t].audible ? v[t].level : 0U;
-        unsigned meter = (level * 60U + 63U) / 127U;
-        if (meter != cache->meter_cache[t]) {
+        unsigned meter = (level * 10U + 63U) / 127U * 6U; /* ten steady steps, not every flicker */
+        static uint32_t meter_at[LAYERS_SHOWN];
+        if (!paint_rendering && meter != cache->meter_cache[t] && frame_time - meter_at[t] < 200U) meter = cache->meter_cache[t];
+        if (!hold && meter != cache->meter_cache[t]) {
+            if (!paint_rendering) meter_at[t] = frame_time; /* at most five updates a second */
             cache->meter_cache[t] = meter;
             paint_fill(170, y + 21, 62, 2, PANEL);
             if (meter) paint_fill(170, y + 21, meter, 2, level >= 124 ? AMBER : colors[t]);
