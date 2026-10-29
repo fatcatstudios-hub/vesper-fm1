@@ -608,20 +608,19 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
             number(ORBIT_X - 12, ORBIT_Y - 7, (int)first + 1, 2, 2, TEXT, BACK); /* page start */
         }
     }
-    /* Calm HOME: while the LCD still has a backlog (a page change, say), the
-     * moving parts wait, so the new page lands first. The rings hold still
-     * (first 16 steps); only the focused layer's ring carries the playhead. */
+    /* While the LCD still has a backlog (a page change, say), the rings wait,
+     * so the new page lands first. */
     unsigned backlog = 0;
     for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) ++backlog;
     unsigned hold = !paint_rendering && backlog > 3;
     for (unsigned t = 0; t < LAYERS_SHOWN; ++t) {
         /* The rings: this layer's 16 steps around the circle. */
-        unsigned page = !v[t].playing && t == track ? first : 0U;
+        unsigned page = v[t].playing ? v[t].play_step / 16U * 16U : t == track ? first : 0U;
         for (unsigned i = 0; i < 16 && !hold; ++i) {
             unsigned step = page + i;
             unsigned enabled = step < v[t].sequence_length;
             unsigned on = enabled && (unsigned)((v[t].active_steps >> step) & 1U);
-            unsigned head = v[t].playing && t == track && (v[t].play_step % 16U) / 4U * 4U == i; /* steps on beats */
+            unsigned head = v[t].playing && v[t].play_step == step; /* every ring, every 16th */
             unsigned selected = enabled && t == track && step == cursor && !v[t].playing;
             uint32_t sig = on | (head << 1) | (selected << 2) | ((uint32_t)v[t].audible << 3) | (enabled << 4);
             if (sig == cache->cell_cache[t][i]) continue;
