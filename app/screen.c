@@ -47,7 +47,7 @@ enum {
             w = (w * w) >> 8; \
             r += ((tr) * w) >> 8; g += ((tg) * w) >> 8; b += ((tb) * w) >> 8; \
         } } while (0)
-static uint16_t frost(unsigned x, unsigned y, unsigned glass)
+static inline __attribute__((always_inline)) uint16_t frost_px(unsigned x, unsigned y, unsigned glass)
 {
     /* Register-only on purpose: on the FM-1 every memory read costs about as
      * much as the whole sum, so there are no tables and no saved state here.
@@ -64,6 +64,13 @@ static uint16_t frost(unsigned x, unsigned y, unsigned glass)
     return (uint16_t)((r > 31 ? 31 : r) << 11 | (g > 63 ? 63 : g) << 5 | (b > 31 ? 31 : b));
 }
 #undef GLOW
+static __attribute__((noinline)) uint16_t frost(unsigned x, unsigned y, unsigned glass) { return frost_px(x, y, glass); }
+/* A whole run of backdrop pixels in one call: no call per pixel, so nothing
+ * has to be saved to and reloaded from memory for each one. */
+static __attribute__((noinline)) void frost_run(uint16_t *dst, unsigned x, unsigned end, unsigned y, unsigned glass)
+{
+    for (; x < end; ++x) *dst++ = frost_px(x, y, glass);
+}
 /* Five columns per glyph, bit 0 at the top. Digits followed by uppercase. */
 static const uint8_t font[36][5] = {
     {0x3e, 0x51, 0x49, 0x45, 0x3e}, {0, 0x42, 0x7f, 0x40, 0},       {0x42, 0x61, 0x51, 0x49, 0x46},
@@ -111,10 +118,11 @@ static __attribute__((noinline)) void paint_fill(unsigned x, unsigned y, unsigne
     unsigned first = y < paint_top ? paint_top : y;
     unsigned end = y + h < paint_top + PAINT_ROWS ? y + h : paint_top + PAINT_ROWS;
     unsigned see_through = color == BACK || color == PANEL;
-    for (unsigned row = first; row < end; ++row)
-        for (unsigned col = x; col < right; ++col)
-            paint_pixels[(row - paint_top) * (paint_end - paint_x) + col - paint_x] =
-                see_through ? frost(col, row, color == PANEL) : color;
+    for (unsigned row = first; row < end; ++row) {
+        uint16_t *pixel = paint_pixels + (row - paint_top) * (paint_end - paint_x) + x - paint_x;
+        if (see_through) frost_run(pixel, x, right, row, color == PANEL);
+        else for (unsigned col = x; col < right; ++col) *pixel++ = color;
+    }
 }
 static const uint8_t punctuation[][6] = {
     {45,8,8,8,8,8}, {47,0x60,0x18,6,1,0}, {43,8,8,0x3e,8,8},
@@ -1592,7 +1600,7 @@ static void speed_test(void)
     uint32_t t1 = fm1_millis(); bench_sink += vesper_bench_ram();
     uint32_t t2 = fm1_millis();
     /* the real backdrop function, a full screen of calls */
-    for (unsigned y = 0; y < 240; ++y) for (unsigned x = 0; x < 240; ++x) bench_sink += frost(x, y, 0);
+    for (unsigned y = 0; y < 240; ++y) for (unsigned x = 0; x < 240; ++x) bench_sink += frost(x, y, 0); /* per-pixel calls (text) */
     uint32_t t3 = fm1_millis();
     bench_result[0] = t1 - t0; bench_result[1] = t2 - t1; bench_result[2] = t3 - t2; bench_result[3] = 0;
     /* the real band fill, a full screen, only while the LCD is idle (its buffer is free) */
