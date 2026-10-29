@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 #include "instrument.h"
+#include "fm1_engine_control.h"
 #include "fm_patch.h"
 #include "drum808.h"
 #include "sampledrum.h"
@@ -471,8 +472,31 @@ int worship_chord_edit(int root_delta, int quality_delta)
 
 /* Control-task poll: keep the LUSH engine in step with the loaded scene, the
  * track volumes and sends, and the FX page (decay, delay time, feedback, level). */
+/* Overload guard: the FM-1 counts late audio blocks. Each 100 ms, a new late
+ * block lowers the LUSH synth voice budget by one (min 2); four calm seconds
+ * raise it by one (max 8). Busy passages lose a tail, never the beat. */
+static void overload_guard(void)
+{
+    static uint32_t checked, calm_since, seen;
+    static unsigned budget = 8, started;
+    uint32_t now = fm1_millis();
+    if (started && now - checked < 100U) return;
+    checked = now;
+    struct fm1_audio_stats dma; fm1_audio_stats_read(&dma);
+    struct fm1_engine_stats engine; fm1_engine_stats_read(&engine);
+    uint32_t late = dma.overruns + engine.underruns;
+    if (!started) { started = 1; seen = late; calm_since = now; }
+    if (late != seen) {
+        seen = late; calm_since = now;
+        if (budget > 2U) lush_budget(--budget);
+    } else if (now - calm_since >= 4000U && budget < 8U) {
+        calm_since = now;
+        lush_budget(++budget);
+    }
+}
 void worship_poll(void)
 {
+    overload_guard();
     int scene = active_scene();
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
         unsigned patch = scene >= 0 && t < LAYERS ? scenes[scene].lush[t] : LUSH_NONE;

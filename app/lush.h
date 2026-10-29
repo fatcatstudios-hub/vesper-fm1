@@ -39,6 +39,7 @@ void lush_effects(const uint8_t fx[4], unsigned delay_ticks, unsigned tempo, uns
 const char *lush_patch_name(unsigned patch);
 const char *lush_track_name(unsigned track);
 unsigned lush_track_level(unsigned track);   /* 0..127, live */
+void lush_budget(unsigned voices_allowed);   /* control task: max overlapping synth voices */
 
 /* Control task, from the sample bank loader: bind one of the eight shared
  * sample slots (memory-mapped SEA5 data, 32 kHz). NULL data unbinds; voices

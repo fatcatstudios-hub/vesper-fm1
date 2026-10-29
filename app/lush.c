@@ -193,12 +193,34 @@ struct voice {
     int32_t vibrato_depth;            /* cents Q8, ramps in */
     int32_t reverse_chunk;            /* decoded chunk cached in ks_memory, -1 none */
 };
+_Static_assert(__builtin_offsetof(struct voice, drift_target) == __builtin_offsetof(struct voice, lp1) + 11 * 4,
+               "start_voice clears lp1..drift_target as one block");
 static struct voice voices[VOICES];
+static uint16_t voice_clock;
+/* Adaptive voice budget: the control task lowers it when the FM-1 reports audio
+ * overruns and raises it again after a calm stretch, so busy passages trim
+ * overlapping synth tails instead of glitching. Samples are not counted. */
+static volatile uint8_t synth_budget = 8;
+void lush_budget(unsigned voices_allowed) { synth_budget = (uint8_t)(voices_allowed < 2U ? 2U : voices_allowed > VOICES ? VOICES : voices_allowed); }
+static LUSH_CODE struct voice *oldest_synth(unsigned *count)
+{
+    struct voice *oldest = 0; unsigned n = 0;
+    for (unsigned i = 0; i < VOICES; ++i) {
+        struct voice *o = &voices[i];
+        if (!o->active || o->kill || patches[o->patch].ks == 2) continue;
+        ++n;
+        /* Prefer a released note; among equals, the oldest. */
+        if (!oldest || (o->amp.stage == STAGE_RELEASE) > (oldest->amp.stage == STAGE_RELEASE) ||
+            ((o->amp.stage == STAGE_RELEASE) == (oldest->amp.stage == STAGE_RELEASE) &&
+             (uint16_t)(voice_clock - o->age) > (uint16_t)(voice_clock - oldest->age))) oldest = o;
+    }
+    *count = n;
+    return oldest;
+}
 #if FM1_HOST_TEST
 uint32_t lush_stat[2]; /* voice-blocks rendered: synth/string/modal, sample */
 #endif
-static int16_t ks_memory[KS_VOICES][KS_LEN];
-static uint16_t voice_clock;
+static int16_t ks_memory[KS_VOICES][KS_LEN] __attribute__((aligned(4))); /* cleared as words */
 
 static inline LUSH_CODE int32_t clamp15(int32_t v) { return v > 32767 ? 32767 : v < -32768 ? -32768 : v; }
 static inline LUSH_CODE uint32_t rng(uint32_t *s) { *s = *s * 1664525U + 1013904223U; return *s; }
@@ -236,6 +258,13 @@ __attribute__((minsize)) void lush_sample_bind(unsigned slot, const uint8_t *dat
     bank[slot].data = data;
 }
 
+/* Audio code must not call into Flash. Plain clearing loops become memset
+ * calls (memset lives in Flash), so clear with a barrier the compiler keeps. */
+static LUSH_CODE void sram_clear(void *at, unsigned words)
+{
+    int32_t *w = (int32_t *)at;
+    for (unsigned i = 0; i < words; ++i) { w[i] = 0; __asm__ volatile("" ::: "memory"); }
+}
 static inline LUSH_CODE int32_t sine15(uint32_t phase)
 {
     /* 256-step cycle from a quarter-wave table, mirrored by quadrant, interpolated. */
@@ -413,6 +442,10 @@ static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsig
         if (count < cap || !oldest) break;
         oldest->kill = 1; oldest->filter.stage = STAGE_RELEASE;
     }
+    if (p->ks != 2) {
+        unsigned n; struct voice *o = oldest_synth(&n);
+        if (o && n >= synth_budget) { o->kill = 1; o->filter.stage = STAGE_RELEASE; }
+    }
     struct voice *v = allocate(p->ks == 1 || p->reverse); /* reverse reuses string memory as its chunk cache */
     if (!v) return;
     unsigned index = (unsigned)(v - voices);
@@ -424,9 +457,7 @@ static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsig
     v->base = note_inc(note);
     v->amp.level = 0; v->amp.stage = STAGE_ATTACK; v->amp_now = 0;
     v->filter.level = 0; v->filter.stage = STAGE_ATTACK;
-    v->lp1 = v->bp1 = v->lp2 = v->bp2 = 0;
-    v->rl1 = v->rb1 = v->rl2 = v->rb2 = 0;
-    v->last_l = v->last_r = 0;
+    sram_clear(&v->lp1, 12); /* lp1..bp2, rl1..rb2, last_l/r, drift, drift_target: contiguous */
     v->drift = v->drift_target = 0; v->drift_timer = 0;
     /* Each note lands slightly differently, like an analog poly's voice cards. */
     v->offset = (int32_t)((rng(&v->random) >> 16) % (p->drift * 256U + 1U)) - (int32_t)(p->drift * 128U);
@@ -446,17 +477,18 @@ static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsig
     }
     if (p->ks == 2) {
         v->zone = (uint8_t)zone;
-        v->sample_step = (uint32_t)((((uint64_t)note_inc(target) << 16) * 32000U) /
-                                    ((uint64_t)note_inc(bank[zone].root) * 44100U));
+        /* 32 kHz samples at 44.1 kHz, Q16: 65536 * 32000 / 44100 = 47554.8. A 64-by-32
+         * division uses the CPU's divider, never the Flash helper for 64-by-64. */
+        v->sample_step = (uint32_t)(((uint64_t)note_inc(target) * 47555U) / (uint32_t)note_inc(bank[zone].root));
         v->sample_pos = (rng(&v->random) >> 29);   /* 0..7 frames: no two hits identical */
         v->sample_frac = 0; v->sample_next = 0xffffffffU;
-        for (unsigned i = 0; i < 8; ++i) v->sample_state[i] = 0;
+        sram_clear(v->sample_state, 8);
         v->velocity -= (int32_t)((rng(&v->random) >> 28) * 160U); /* up to ~-0.7 dB */
         v->amp.level = ONE30 - (ONE30 >> 6); v->amp.stage = STAGE_DECAY; /* keep the recorded attack */
         if (p->reverse) {
             /* Start far enough into the sample that, played backwards, it reaches
              * the attack exactly `reverse` beats from now. */
-            uint32_t span = beat_inc ? (uint32_t)((((uint64_t)1 << 28) * p->reverse) / beat_inc) : 35280U;
+            uint32_t span = beat_inc ? (uint32_t)((((uint64_t)1 << 28) * p->reverse) / (uint32_t)beat_inc) : 35280U;
             uint64_t frames = ((uint64_t)span * v->sample_step) >> 16;
             uint32_t last = bank[zone].frames - 2U;
             v->sample_pos = frames < last ? (uint32_t)frames : last;
@@ -466,12 +498,12 @@ static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsig
     }
     if (p->ks == 1) {
         /* Plucked string: delay of one period, minus the loop filter's half sample. */
-        uint32_t period = (uint32_t)(((uint64_t)1 << 48) / v->base);
+        uint32_t period = (uint32_t)(((uint64_t)1 << 48) / (uint32_t)v->base);
         if (period > ((KS_LEN - 4U) << 16)) period = (KS_LEN - 4U) << 16;
         if (period < (3U << 16)) period = 3U << 16;
         v->ks_coef = 4000 + p->bright * 220;        /* loop low-pass: brightness */
         /* The one-pole loop filter delays by (1-a)/a samples; keep strings in tune. */
-        uint32_t lag = (uint32_t)((((uint64_t)(32768 - v->ks_coef)) << 16) / (uint32_t)v->ks_coef);
+        uint32_t lag = ((uint32_t)(32768 - v->ks_coef) << 16) / (uint32_t)v->ks_coef; /* < 2^31: 32-bit */
         v->ks_delay = period > lag + (2U << 16) ? period - lag : 2U << 16;
         v->ks_write = 0;
         v->ks_gain = 32000 + p->decay * 6;          /* loop gain: sustain */
@@ -480,7 +512,7 @@ static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsig
         unsigned length = (period >> 16) + 2U;
         int32_t tone = 3000 + p->bright * 230 + ((v->velocity * p->bright) >> 8), state = 0;
         if (tone > 32000) tone = 32000;
-        for (unsigned i = 0; i < KS_LEN; ++i) line[i] = 0;
+        sram_clear(line, KS_LEN / 2);
         int32_t sum = 0;
         for (unsigned i = 0; i < length; ++i) {
             state += ((noise15(&v->random) * 2 - state) * tone) >> 15;  /* hammer / pick tone */
@@ -609,7 +641,8 @@ static LUSH_CODE void render_voice(struct voice *v)
                     const uint8_t *data = bank[v->zone].data;
                     if (!data || v->sample_pos < 2U) { ab[e] = 0; v->sample_next = 0xfffffffeU; continue; }
                     if ((int32_t)chunk != v->reverse_chunk) {
-                        int32_t state[8] = {0}, failed = 0;  /* whole chunk, group by group */
+                        int32_t state[8], failed = 0;  /* whole chunk, group by group */
+                        sram_clear(state, 8);
                         for (unsigned g = 0; g < 16U && !failed; ++g)
                             failed = fm1_sea_decode_groups(data + chunk * SEA_CHUNK_BYTES, SEA_CHUNK_BYTES, 5, lush_dqt,
                                                            g, g, state, ks_memory[index] + g * FM1_SEA_GROUP);
@@ -888,8 +921,8 @@ LUSH_CODE void lush_render(int32_t *output)
         any |= layer[t].patch;
     }
     beat_phase += beat_inc * N;
-    for (unsigned i = 0; i < 2 * N; ++i) bus_dry[i] = 0;
-    for (unsigned i = 0; i < N; ++i) bus_chorus[i] = bus_reverb[i] = bus_delay[i] = 0;
+    { unsigned n; struct voice *o = oldest_synth(&n); if (o && n > synth_budget) { o->kill = 1; o->filter.stage = STAGE_RELEASE; } }
+    sram_clear(bus_dry, 2 * N); sram_clear(bus_chorus, N); sram_clear(bus_reverb, N); sram_clear(bus_delay, N);
     unsigned voicing = 0;
     for (unsigned t = 0; t < TRACKS; ++t) if (track_level[t]) --track_level[t]; /* ~0.4 s fall */
     for (unsigned i = 0; i < VOICES; ++i)
