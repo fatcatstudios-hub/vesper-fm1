@@ -286,7 +286,7 @@ __attribute__((minsize)) void lush_effects(const uint8_t fx[4], unsigned delay_t
         beat_inc = (uint32_t)(((uint64_t)tempo << 32) / (60ULL * 44100ULL * 16ULL));
     fx_shimmer = (int32_t)(shimmer > 127 ? 127 : shimmer) * 180;   /* 0 .. 0.70: band-limited, so it can bloom */
     fx_decay = 15000 + (int32_t)fx[0] * 121;   /* 0.46 .. 0.93 */
-    fx_damp = 13000 - (int32_t)fx[0] * 40;     /* longer tails are a touch brighter */
+    fx_damp = 13000 - 3960 - (int32_t)fx[0] * 40; /* longer tails are a touch brighter; 0.8.3 TONE +33 baked in */
     fx_feedback = (int32_t)fx[2] * 214;        /* 0 .. 0.83 */
     fx_wet = (int32_t)fx[3] * 240;             /* 0 .. 0.93 */
     uint32_t half = delay_ticks * 4U;          /* 44.1k/8 ticks -> 22.05k samples */
