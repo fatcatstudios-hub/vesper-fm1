@@ -1583,12 +1583,35 @@ static unsigned vesper_bar(unsigned id)
     int v = lush_param_get(track, id) + (id == LP_ENV ? 60 : id == LP_OCTAVE ? 2 : 0);
     return (unsigned)clamp(v * 64 / span[id], 0, 64);
 }
+/* GLO > TEST: SPEED. The same pixel loop timed twice: once running from
+ * flash (where the screen code lives) and once from on-chip RAM. If RAM is
+ * much faster, the screen's drawing core belongs in RAM. Runs only on request. */
+#define BENCH_BODY(seed) \
+    unsigned sum = seed; \
+    for (unsigned y = 0; y < 240; ++y) \
+        for (unsigned x = 0; x < 240; ++x) { \
+            unsigned d = (x ^ y) & 1U, r = 1U + (y * 3U + 60U) / 240U, g = 4U + y / 120U + d; \
+            int dx = (int)x - 200, dy = (int)y - 30, d2 = dx * dx + dy * dy; \
+            if (d2 < 14400) { int w = ((14400 - d2) * 1165) >> 16; w = (w * w) >> 8; r += (unsigned)w >> 7; } \
+            sum += r << 11 | g << 5; \
+        } \
+    return sum;
+static __attribute__((noinline)) unsigned bench_flash(void) { BENCH_BODY(1U) }
+FM1_AUDIO_CODE unsigned vesper_bench_ram(void) { BENCH_BODY(2U) }
+static unsigned bench_result[2], bench_sink;
+static void speed_test(void)
+{
+    uint32_t t0 = fm1_millis(); bench_sink += bench_flash();
+    uint32_t t1 = fm1_millis(); bench_sink += vesper_bench_ram();
+    uint32_t t2 = fm1_millis();
+    bench_result[0] = t1 - t0; bench_result[1] = t2 - t1;
+}
 /* GLO: global settings. SELECT picks a row, K1 changes it. */
 enum { G_CLOCK, G_CLOCK_IN, G_CLOCK_OUT, G_MIDI_OUT, G_KEYS_OUT, G_LOCAL, G_THRU_IN, G_THRU_OUT,
-       G_BLUETOOTH, G_SWING, G_CLICK, G_BATTERY, G_PAGE_DRAW, G_PAINT, G_DECIDE, G_PASSES, G_BACKDROP, G_FX_TEST, G_VERSION, G_ROWS };
+       G_BLUETOOTH, G_SWING, G_CLICK, G_BATTERY, G_PAGE_DRAW, G_PAINT, G_DECIDE, G_PASSES, G_BACKDROP, G_FX_TEST, G_BENCH, G_VERSION, G_ROWS };
 static const char *const global_names[G_ROWS] = {"CLOCK", "CLOCK IN", "CLOCK OUT", "MIDI OUT", "KEYS TO MIDI",
     "LOCAL SOUND", "THRU FROM", "THRU TO", "BLUETOOTH", "SWING", "CLICK", "BATTERY", "PAGE DRAW",
-    "  PAINTING", "  DECIDING", "  PASSES/BANDS", "TEST: GLOWS", "TEST: SOUND FX", "VERSION"};
+    "  PAINTING", "  DECIDING", "  PASSES/BANDS", "TEST: GLOWS", "TEST: SOUND FX", "TEST: SPEED K1", "VERSION"};
 static __attribute__((noinline)) void global_value(unsigned row, char out[12])
 {
     static const char *const ports[] = {"OFF", "DIN", "USB", "DIN+USB", "BLE", "DIN+BLE", "USB+BLE", "ALL"};
@@ -1612,6 +1635,8 @@ static __attribute__((noinline)) void global_value(unsigned row, char out[12])
     case G_PASSES: { char b[6]; decimal(out, (int)page_diag[2], 1); strcat(out, "/"); decimal(b, (int)page_diag[3], 1); strcat(out, b); } break;
     case G_BACKDROP: strcpy(out, flat_backdrop ? "OFF" : "ON"); break;
     case G_FX_TEST: strcpy(out, lush_fx_bypassed() ? "OFF" : "ON"); break;
+    case G_BENCH: { char b[6]; strcpy(out, "F"); decimal(b, (int)bench_result[0], 1); strcat(out, b);
+                    strcat(out, " R"); decimal(b, (int)bench_result[1], 1); strcat(out, b); } break;
     case G_VERSION: strcpy(out, SHOWN_VERSION); break;
     default: strcpy(out, v ? "ON" : "OFF");
     }
@@ -1630,6 +1655,7 @@ static void global_edit(unsigned row, int delta)
     } else if (row == G_SWING || row == G_CLICK) groove_sequence_setting_edit(row == G_SWING ? 0 : 1, delta);
     else if (row == G_BACKDROP) { flat_backdrop = delta < 0; saved_cache.shown_page = ~0U; } /* redraw to show it */
     else if (row == G_FX_TEST) lush_fx_bypass(delta < 0);
+    else if (row == G_BENCH) speed_test();
 }
 static __attribute__((noinline)) void global_draw(void)
 {
