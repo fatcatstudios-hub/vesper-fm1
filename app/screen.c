@@ -178,11 +178,14 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
         for (unsigned row = first_row; row < end_row; ++row) {
             unsigned mask = 1U << ((row - y) / scale);
             uint16_t *pixel = paint_pixels + (row - paint_top) * stride + first_col - paint_x;
+            /* Frosted backgrounds go down as one run (no call per pixel), then
+             * the glyph's own pixels are written over them. */
+            unsigned frosted = background == BACK || background == PANEL;
+            if (frosted) frost_run(pixel, first_col, end_col, row, background == PANEL);
             for (unsigned col = first_col; col < end_col; ++col) {
                 unsigned column = (col - x) / scale;
                 if (column < 5U && (shape[column] & mask)) *pixel = color;
-                else if (background != INK)
-                    *pixel = background == BACK || background == PANEL ? frost(col, row, background == PANEL) : background;
+                else if (background != INK && !frosted) *pixel = background;
                 ++pixel;
             }
         }
