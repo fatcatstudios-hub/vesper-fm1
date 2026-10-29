@@ -173,6 +173,7 @@ struct voice {
     int32_t f, q;                     /* filter coefficients, Q15 */
     int32_t lp1, bp1, lp2, bp2;       /* left / mono filter */
     int32_t rl1, rb1, rl2, rb2;       /* right filter for stereo unison */
+    int32_t last_l, last_r;           /* half-rate synth: previous computed sample */
     int32_t drift, drift_target;      /* slow wander, cents Q8 */
     int32_t offset;                   /* fixed per-note tuning offset, cents Q8 */
     uint16_t drift_timer;             /* ticks until the wander picks a new target */
@@ -303,6 +304,7 @@ static LUSH_CODE void filter_tick(struct voice *v, const struct patch *p)
               + (v->drift >> 1) + ((v->velocity >> 7) * p->velocity >> 6);
     if (p->motion && p->motion_div)  /* tempo-locked filter movement */
         c += (int32_t)p->motion * (sine15(beat_phase << (7U - p->motion_div)) >> 7);
+    if (p->ks == 0) c += 12 << 8;   /* synth voices run at half rate: same cutoff in Hz */
     if (c < 0) c = 0;
     if (c > (134 << 8)) c = 134 << 8;
     unsigned i = (unsigned)c >> 8, frac = (unsigned)c & 255U;
@@ -335,7 +337,7 @@ static LUSH_CODE void voice_tick(struct voice *v, const struct patch *p)
             for (unsigned k = 0; k < 3; ++k) {
                 int32_t c = vw[0][k] + ((((int32_t)vw[1][k] - vw[0][k]) * morph) >> 15);
                 if (p->motion && p->motion_div) c += (int32_t)p->motion * (sine15(beat_phase << (7U - p->motion_div)) >> 7);
-                v->formant_f[k] = coef_q8(c);
+                v->formant_f[k] = coef_q8(c + (12 << 8)); /* half rate */
             }
         }
         uint32_t base = detune(v->base, v->drift + v->offset + vibrato);
@@ -396,12 +398,10 @@ static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsig
         if (best == 1000) return; /* no samples loaded */
     }
     /* Per-layer polyphony keeps the CPU bounded: basses are mono, synth layers
-     * keep three notes (the stereo supersaw and detune pluck two), strings four,
-     * samples six. Over the limit, the layer's
+     * keep two notes, strings three, samples four (reverse swells two). Over the limit, the layer's
      * oldest note fades out in ~4 ms. */
     unsigned cap = patch_id == LUSH_WARM_BASS || patch_id == LUSH_SUB || patch_id == LUSH_DETUNE_BASS ? 1U
-                 : p->ks == 2 ? (p->reverse ? 2U : 6U) : p->ks == 1 ? 4U
-                 : patch_id == LUSH_SUPERSAW || patch_id == LUSH_DETUNE_PLUCK ? 2U : 3U; /* stereo 3-saw: heaviest */
+                 : p->ks == 2 ? (p->reverse ? 2U : 4U) : p->ks == 1 ? 3U : 2U;
     for (;;) {
         struct voice *oldest = 0; unsigned count = 0;
         for (unsigned i = 0; i < VOICES; ++i) {
@@ -426,6 +426,7 @@ static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsig
     v->filter.level = 0; v->filter.stage = STAGE_ATTACK;
     v->lp1 = v->bp1 = v->lp2 = v->bp2 = 0;
     v->rl1 = v->rb1 = v->rl2 = v->rb2 = 0;
+    v->last_l = v->last_r = 0;
     v->drift = v->drift_target = 0; v->drift_timer = 0;
     /* Each note lands slightly differently, like an analog poly's voice cards. */
     v->offset = (int32_t)((rng(&v->random) >> 16) % (p->drift * 256U + 1U)) - (int32_t)(p->drift * 128U);
@@ -646,23 +647,28 @@ static LUSH_CODE void render_voice(struct voice *v)
                     s += (sine15(v->phase[3]) * p->sine) >> 8;
                     v->phase[3] += v->inc[3];
                 }
+            } else if (k & 1U) {
+                /* Synth voices run at 22.05 kHz: odd samples repeat the last
+                 * computed one; even ones (below) interpolate across the gap. */
+                s = v->last_l; s_right = v->last_r;
             } else {
                 int32_t a = 0, b = 0, c = 0, common = 0;
+                uint32_t i0 = v->inc[0] << 1, i1 = v->inc[1] << 1, i2 = v->inc[2] << 1;
                 if (p->saw) {
-                    a = saw15(v->phase[0], v->inc[0]);
-                    if (p->unison >= 2) b = saw15(v->phase[1], v->inc[1]);
-                    if (p->unison >= 3) c = saw15(v->phase[2], v->inc[2]);
+                    a = saw15(v->phase[0], i0);
+                    if (p->unison >= 2) b = saw15(v->phase[1], i1);
+                    if (p->unison >= 3) c = saw15(v->phase[2], i2);
                 }
                 if (p->pulse) {
                     uint32_t width = 0x18000000U + (uint32_t)p->pw * 0x00d00000U; /* 127 = square */
-                    int32_t pulse = saw15(v->phase[0], v->inc[0]) - saw15(v->phase[0] + width, v->inc[0]);
+                    int32_t pulse = saw15(v->phase[0], i0) - saw15(v->phase[0] + width, i0);
                     if (p->unison >= 2) /* detuned second pulse for the classic chorused arp */
-                        pulse += saw15(v->phase[1], v->inc[1]) - saw15(v->phase[1] + width, v->inc[1]);
+                        pulse += saw15(v->phase[1], i1) - saw15(v->phase[1] + width, i1);
                     common += (pulse * p->pulse) >> (p->unison >= 2 ? 9 : 8);
                 }
                 if (p->sine) common += (sine15(v->phase[3]) * p->sine) >> 7;
                 if (p->noise) common += (noise15(&v->random) * p->noise) >> 7;
-                for (unsigned u = 0; u < 4; ++u) v->phase[u] += v->inc[u];
+                for (unsigned u = 0; u < 4; ++u) v->phase[u] += v->inc[u] << 1;
                 if (p->stereo) {
                     /* Unison split across the field: outer saws hard left/right, centre shared. */
                     int32_t l = p->unison >= 3 ? a + (b >> 1) : a, r = p->unison >= 3 ? c + (b >> 1) : b;
@@ -687,6 +693,9 @@ static LUSH_CODE void render_voice(struct voice *v)
                     int32_t osc = (((a + b + c) * saw_level) >> 15) + common;
                     s = warm_filter(osc, p, v->f, v->q, &v->lp1, &v->bp1, &v->lp2, &v->bp2);
                 }
+                int32_t now_l = s, now_r = s_right;
+                s = (v->last_l + now_l) >> 1; s_right = (v->last_r + now_r) >> 1;
+                v->last_l = now_l; v->last_r = now_r;
             }
             amp += step;
             int32_t out = (int32_t)(((int64_t)s * amp) >> 15);

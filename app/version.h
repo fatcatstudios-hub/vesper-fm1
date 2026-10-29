@@ -3,7 +3,7 @@
 #define FM1_VERSION_H
 
 /* WORSHIP build number: on the start screen and in every file name. */
-#define WORSHIP_VERSION "0.6"
+#define WORSHIP_VERSION "0.6.1"
 #define FM1_RELEASE_VERSION "V14"
 #define FM1_UPDATE_PRODUCT "FM-1_8000014"
 
