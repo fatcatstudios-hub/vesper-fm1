@@ -179,7 +179,7 @@ def create(app, resources, output, user_bytes, product):
     if not re.fullmatch(r'FM-1_8[0-9]{6}', product or ''):
         raise ValueError('Invalid FM1 update identity.')
     if not app or len(app) > FLASH_LIMIT - USER_SIZE - BT_SIZE - MINIMUM_VM - AREA - APP_DATA - 383 - 64 or user_bytes != USER_SIZE:
-        raise ValueError('Application does not fit the FM1 layout.')
+        raise ValueError('Application does not fit the FM1 layout: %d bytes, limit %d.' % (len(app or b''), FLASH_LIMIT - USER_SIZE - BT_SIZE - MINIMUM_VM - AREA - APP_DATA - 383 - 64))
     image_size = round_up(AREA + APP_DATA + len(app) + 383 + 64, 4096)
     user_at = FLASH_LIMIT - USER_SIZE
     vm_end = user_at - BT_SIZE

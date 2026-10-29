@@ -9,6 +9,9 @@
 #include "fm1.h"
 
 #define LUSH_CODE FM1_AUDIO_CODE
+/* FM1_AUDIO_CODE implies noinline. Per-sample helpers must inline into their
+ * SRAM caller instead: on the FM-1 each call/return costs more than the math. */
+#define LUSH_HOT __attribute__((always_inline))
 /* Diagnostic switches for host measurements; the defaults are the shipped sound. */
 #ifndef LUSH_DRIVE
 #define LUSH_DRIVE 1
@@ -20,7 +23,7 @@
 #include "lush_sea_dqt.inc"
 #include "fm1_sea.h"
 /* Phase increment for a MIDI note: the top octave (notes 120..131), shifted down. */
-static inline LUSH_CODE uint32_t note_inc(unsigned note)
+static inline LUSH_HOT uint32_t note_inc(unsigned note)
 {
     if (note > 127) note = 127;
     return lush_octave[note % 12U] >> (10U - note / 12U);
@@ -199,15 +202,16 @@ static struct voice voices[VOICES];
 static uint16_t voice_clock;
 /* Adaptive voice budget: the control task lowers it when the FM-1 reports audio
  * overruns and raises it again after a calm stretch, so busy passages trim
- * overlapping synth tails instead of glitching. Samples are not counted. */
-static volatile uint8_t synth_budget = 8;
-void lush_budget(unsigned voices_allowed) { synth_budget = (uint8_t)(voices_allowed < 2U ? 2U : voices_allowed > VOICES ? VOICES : voices_allowed); }
+ * overlapping tails instead of glitching. Every voice type counts, so sample-
+ * heavy scenes are covered too. */
+static volatile uint8_t synth_budget = 10;
+void lush_budget(unsigned voices_allowed) { synth_budget = (uint8_t)(voices_allowed < 3U ? 3U : voices_allowed > VOICES ? VOICES : voices_allowed); }
 static LUSH_CODE struct voice *oldest_synth(unsigned *count)
 {
     struct voice *oldest = 0; unsigned n = 0;
     for (unsigned i = 0; i < VOICES; ++i) {
         struct voice *o = &voices[i];
-        if (!o->active || o->kill || patches[o->patch].ks == 2) continue;
+        if (!o->active || o->kill) continue;
         ++n;
         /* Prefer a released note; among equals, the oldest. */
         if (!oldest || (o->amp.stage == STAGE_RELEASE) > (oldest->amp.stage == STAGE_RELEASE) ||
@@ -222,9 +226,9 @@ uint32_t lush_stat[2]; /* voice-blocks rendered: synth/string/modal, sample */
 #endif
 static int16_t ks_memory[KS_VOICES][KS_LEN] __attribute__((aligned(4))); /* cleared as words */
 
-static inline LUSH_CODE int32_t clamp15(int32_t v) { return v > 32767 ? 32767 : v < -32768 ? -32768 : v; }
-static inline LUSH_CODE uint32_t rng(uint32_t *s) { *s = *s * 1664525U + 1013904223U; return *s; }
-static inline LUSH_CODE int32_t noise15(uint32_t *s) { return (int32_t)(rng(s) >> 17) - 16384; }
+static inline LUSH_HOT int32_t clamp15(int32_t v) { return v > 32767 ? 32767 : v < -32768 ? -32768 : v; }
+static inline LUSH_HOT uint32_t rng(uint32_t *s) { *s = *s * 1664525U + 1013904223U; return *s; }
+static inline LUSH_HOT int32_t noise15(uint32_t *s) { return (int32_t)(rng(s) >> 17) - 16384; }
 
 /* ---- shared sample bank (bound by app/samples.c) ---- */
 enum { BANK_SLOTS = 8, SEA_CHUNK_BYTES = 228 };
@@ -265,7 +269,7 @@ static LUSH_CODE void sram_clear(void *at, unsigned words)
     int32_t *w = (int32_t *)at;
     for (unsigned i = 0; i < words; ++i) { w[i] = 0; __asm__ volatile("" ::: "memory"); }
 }
-static inline LUSH_CODE int32_t sine15(uint32_t phase)
+static inline LUSH_HOT int32_t sine15(uint32_t phase)
 {
     /* 256-step cycle from a quarter-wave table, mirrored by quadrant, interpolated. */
     unsigned i = phase >> 24, frac = (phase >> 8) & 0xffffU, k = i & 63U;
@@ -279,7 +283,7 @@ static inline LUSH_CODE int32_t sine15(uint32_t phase)
     return a + (((b - a) * (int32_t)frac) >> 16);
 }
 /* Band-limited sawtooth (polyBLEP), Q15. */
-static inline LUSH_CODE int32_t saw15(uint32_t ph, uint32_t inc)
+static inline LUSH_HOT int32_t saw15(uint32_t ph, uint32_t inc)
 {
     int32_t s = (int32_t)(ph >> 16) - 32768;
     if (ph < inc) {
@@ -292,7 +296,7 @@ static inline LUSH_CODE int32_t saw15(uint32_t ph, uint32_t inc)
     }
     return s;
 }
-static inline LUSH_CODE uint32_t detune(uint32_t inc, int32_t cents_q8)
+static inline LUSH_HOT uint32_t detune(uint32_t inc, int32_t cents_q8)
 {
     /* 2^(c/1200) ~ 1 + c*ln2/1200 for the few tens of cents used here. */
     int64_t ratio = (int64_t)ONE30 + (((int64_t)cents_q8 * 620213) >> 8);
@@ -318,7 +322,7 @@ static LUSH_CODE void envelope_tick(struct envelope *e, const uint8_t t[4])
     default: break;
     }
 }
-static inline LUSH_CODE int32_t coef_q8(int32_t c)
+static inline LUSH_HOT int32_t coef_q8(int32_t c)
 {
     if (c < 0) c = 0;
     if (c > (134 << 8)) c = 134 << 8;
@@ -427,10 +431,10 @@ static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsig
         if (best == 1000) return; /* no samples loaded */
     }
     /* Per-layer polyphony keeps the CPU bounded: basses are mono, synth layers
-     * keep two notes, strings three, samples four (reverse swells two). Over the limit, the layer's
+     * keep two notes, strings three, samples three (reverse swells two). Over the limit, the layer's
      * oldest note fades out in ~4 ms. */
     unsigned cap = patch_id == LUSH_WARM_BASS || patch_id == LUSH_SUB || patch_id == LUSH_DETUNE_BASS ? 1U
-                 : p->ks == 2 ? (p->reverse ? 2U : 4U) : p->ks == 1 ? 3U : 2U;
+                 : p->ks == 2 ? (p->reverse ? 2U : 3U) : p->ks == 1 ? 3U : 2U;
     for (;;) {
         struct voice *oldest = 0; unsigned count = 0;
         for (unsigned i = 0; i < VOICES; ++i) {
@@ -442,7 +446,7 @@ static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsig
         if (count < cap || !oldest) break;
         oldest->kill = 1; oldest->filter.stage = STAGE_RELEASE;
     }
-    if (p->ks != 2) {
+    {
         unsigned n; struct voice *o = oldest_synth(&n);
         if (o && n >= synth_budget) { o->kill = 1; o->filter.stage = STAGE_RELEASE; }
     }
@@ -557,7 +561,7 @@ __attribute__((minsize)) LUSH_CODE void lush_transport(uint8_t status)
 }
 
 /* Saturation then a 4-pole state-variable low-pass (two Chamberlin stages). */
-static inline LUSH_CODE int32_t warm_filter(int32_t osc, const struct patch *p, int32_t f, int32_t q,
+static inline LUSH_HOT int32_t warm_filter(int32_t osc, const struct patch *p, int32_t f, int32_t q,
                                             int32_t *lp1, int32_t *bp1, int32_t *lp2, int32_t *bp2)
 {
     int32_t x = clamp15(osc + ((osc * p->drive * LUSH_DRIVE) >> 7));
@@ -579,7 +583,7 @@ static inline LUSH_CODE int32_t warm_filter(int32_t osc, const struct patch *p, 
 /* Decoded sample at a source frame, caching two SEA groups so interpolation
  * across a group boundary never re-decodes. Returns 0 at the end or on error
  * and marks the voice finished. */
-static LUSH_CODE int32_t sample_at(struct voice *v, uint32_t position)
+static inline LUSH_HOT int32_t sample_at(struct voice *v, uint32_t position)
 {
     const uint8_t *data = bank[v->zone].data;
     if (!data || position >= bank[v->zone].frames) { v->sample_next = 0xfffffffeU; return 0; }
@@ -625,7 +629,7 @@ static LUSH_CODE void render_voice(struct voice *v)
         int32_t to = v->amp.level >> 15, step = (to - from) / TICK, amp = from;
         v->amp_now = to;
         for (unsigned k = 0; k < TICK; ++k) {
-            int32_t s;
+            int32_t s, s_right = 0;
             if (p->ks == 3) {
                 int32_t sum = 0;
                 for (unsigned q = 0; q < 4; ++q) {
@@ -655,14 +659,21 @@ static LUSH_CODE void render_voice(struct voice *v)
                 v->sample_frac += v->sample_step;
                 uint32_t back = v->sample_frac >> 16; v->sample_frac &= 0xffffU;
                 v->sample_pos = v->sample_pos > back ? v->sample_pos - back : 0U;
-                s = warm_filter(x, p, v->f, v->q, &v->lp1, &v->bp1, &v->lp2, &v->bp2);
+                v->lp1 += (int32_t)(((int64_t)(x - v->lp1) * (v->f - (v->f >> 2))) >> 15); /* two-pole tone */
+                v->lp2 += (int32_t)(((int64_t)(v->lp1 - v->lp2) * (v->f - (v->f >> 2))) >> 15);
+                s = v->lp2 + (v->lp2 >> 1);
                 if (v->sample_next == 0xfffffffeU) { v->amp.stage = STAGE_RELEASE; v->amp.level >>= 2; }
             } else if (p->ks == 2) {
                 int32_t a = sample_at(v, v->sample_pos), b = sample_at(v, v->sample_pos + 1U);
                 int32_t x = a + (int32_t)(((int64_t)(b - a) * (int32_t)v->sample_frac) >> 16);
                 v->sample_frac += v->sample_step;
                 v->sample_pos += v->sample_frac >> 16; v->sample_frac &= 0xffffU;
-                s = warm_filter(x, p, v->f, v->q, &v->lp1, &v->bp1, &v->lp2, &v->bp2);
+                /* Samples run at full rate, so a two-pole tone stage stands in for
+                 * the 4-pole ladder: the velocity-tracked darkening stays, at a
+                 * fraction of the cost (sample-heavy scenes were the ones overloading). */
+                v->lp1 += (int32_t)(((int64_t)(x - v->lp1) * (v->f - (v->f >> 2))) >> 15);
+                v->lp2 += (int32_t)(((int64_t)(v->lp1 - v->lp2) * (v->f - (v->f >> 2))) >> 15);
+                s = v->lp2 + (v->lp2 >> 1); /* the ladder's saturator had 1.5x small-signal gain */
                 if (v->sample_next == 0xfffffffeU) { v->amp.stage = STAGE_RELEASE; v->amp.level >>= 1; }
             } else if (p->ks == 1) {
                 int16_t *line = ks_memory[index];
@@ -683,7 +694,7 @@ static LUSH_CODE void render_voice(struct voice *v)
             } else if (k & 1U) {
                 /* Synth voices run at 22.05 kHz: odd samples repeat the last
                  * computed one; even ones (below) interpolate across the gap. */
-                s = v->last_l;
+                s = v->last_l; s_right = v->last_r;
             } else {
                 int32_t a = 0, b = 0, c = 0, common = 0;
                 uint32_t i0 = v->inc[0] << 1, i1 = v->inc[1] << 1, i2 = v->inc[2] << 1;
@@ -703,10 +714,12 @@ static LUSH_CODE void render_voice(struct voice *v)
                 if (p->noise) common += (noise15(&v->random) * p->noise) >> 7;
                 for (unsigned u = 0; u < 4; ++u) v->phase[u] += v->inc[u] << 1;
                 if (p->stereo) {
-                    /* Wide unison: one filter on the summed saws (half the cost of a
-                     * filter per side on this chip); the shared chorus spreads it. */
-                    int32_t x = (((a + b + c) * (saw_level >> 1)) >> 15) + common;
-                    s = warm_filter(x, p, v->f, v->q, &v->lp1, &v->bp1, &v->lp2, &v->bp2);
+                    /* Unison split across the field: outer saws hard left/right, centre shared. */
+                    int32_t l = p->unison >= 3 ? a + (b >> 1) : a, r = p->unison >= 3 ? c + (b >> 1) : b;
+                    l = ((l * saw_level) >> 15) + common;
+                    r = ((r * saw_level) >> 15) + common;
+                    s = warm_filter(l, p, v->f, v->q, &v->lp1, &v->bp1, &v->lp2, &v->bp2);
+                    s_right = warm_filter(r, p, v->f, v->q, &v->rl1, &v->rb1, &v->rl2, &v->rb2);
                 } else if (p->formant) {
                     /* Three vowel formants in parallel (band-passes, q ~ 0.18). */
                     int32_t x = (((a + b + c) * saw_level) >> 15) + common, y = 0;
@@ -724,15 +737,21 @@ static LUSH_CODE void render_voice(struct voice *v)
                     int32_t osc = (((a + b + c) * saw_level) >> 15) + common;
                     s = warm_filter(osc, p, v->f, v->q, &v->lp1, &v->bp1, &v->lp2, &v->bp2);
                 }
-                int32_t now = s;
-                s = (v->last_l + now) >> 1;
-                v->last_l = now;
+                int32_t now_l = s, now_r = s_right;
+                s = (v->last_l + now_l) >> 1; s_right = (v->last_r + now_r) >> 1;
+                v->last_l = now_l; v->last_r = now_r;
             }
             amp += step;
             int32_t out = (int32_t)(((int64_t)s * amp) >> 15);
             out = (int32_t)(((int64_t)out * gain) >> 15);
             unsigned j = at + k;
-            if (p->chorus || p->stereo) bus_chorus[j] += out;
+            if (p->stereo) {
+                int32_t outr = (int32_t)(((int64_t)s_right * amp) >> 15);
+                outr = (int32_t)(((int64_t)outr * gain) >> 15);
+                bus_dry[2 * j] += out;
+                bus_dry[2 * j + 1] += outr;
+                out = (out + outr) >> 1; /* sends are mono */
+            } else if (p->chorus) bus_chorus[j] += out;
             else {
                 bus_dry[2 * j] += (out * left) >> 15;
                 bus_dry[2 * j + 1] += (out * right) >> 15;
@@ -748,7 +767,7 @@ enum { CHORUS_LEN = 2048 };
 static int16_t chorus_line[CHORUS_LEN];
 static unsigned chorus_write;
 static uint32_t chorus_lfo;
-static inline LUSH_CODE int32_t chorus_tap(uint32_t delay_q16)
+static inline LUSH_HOT int32_t chorus_tap(uint32_t delay_q16)
 {
     uint32_t read = (((uint32_t)chorus_write << 16) - delay_q16) & ((CHORUS_LEN << 16) - 1U);
     unsigned i0 = read >> 16, i1 = (i0 + 1U) & (CHORUS_LEN - 1U);
@@ -762,7 +781,7 @@ static int16_t delay_line[DELAY_LEN];
 static unsigned delay_write;
 static int32_t delay_lp, delay_hp, delay_prev[2], delay_out[2];
 static uint32_t tape_wow, tape_flutter;
-static inline LUSH_CODE int32_t delay_tap(uint32_t delay_q16)
+static inline LUSH_HOT int32_t delay_tap(uint32_t delay_q16)
 {
     uint32_t pos = ((uint32_t)delay_write << 16) - delay_q16;
     if ((int32_t)pos < 0) pos += (uint32_t)DELAY_LEN << 16;
@@ -785,7 +804,7 @@ enum { SHIMMER_LEN = 2048, SHIMMER_WINDOW = 1024 };
 static int16_t shimmer_line[SHIMMER_LEN];
 static unsigned shimmer_write, shimmer_phase;
 static int32_t shimmer_lp, shimmer_hp;
-static LUSH_CODE int32_t shimmer_sample(int32_t input)
+static inline LUSH_HOT int32_t shimmer_sample(int32_t input)
 {
     shimmer_line[shimmer_write] = (int16_t)clamp15(input);
     unsigned p1 = shimmer_phase, p2 = (shimmer_phase + SHIMMER_WINDOW / 2U) % SHIMMER_WINDOW;
@@ -802,25 +821,25 @@ static LUSH_CODE int32_t shimmer_sample(int32_t input)
     return shimmer_lp - shimmer_hp;
 }
 static uint32_t rev_lfo;
-static inline LUSH_CODE int32_t tap(const struct line *l, unsigned n)
+static inline LUSH_HOT int32_t tap(const struct line *l, unsigned n)
 {
     int i = (int)l->write - (int)n;
     if (i < 0) i += l->length;
     return l->buf[i];
 }
-static inline LUSH_CODE void push(struct line *l, int32_t v)
+static inline LUSH_HOT void push(struct line *l, int32_t v)
 {
     l->buf[l->write] = (int16_t)clamp15(v);
     if (++l->write == l->length) l->write = 0;
 }
-static inline LUSH_CODE int32_t allpass(struct line *l, unsigned n, int32_t x, int32_t g)
+static inline LUSH_HOT int32_t allpass(struct line *l, unsigned n, int32_t x, int32_t g)
 {
     int32_t d = tap(l, n);
     int32_t v = x - ((d * g) >> 15);
     push(l, v);
     return d + ((v * g) >> 15);
 }
-static inline LUSH_CODE int32_t allpass_mod(struct line *l, uint32_t n_q16, int32_t x, int32_t g)
+static inline LUSH_HOT int32_t allpass_mod(struct line *l, uint32_t n_q16, int32_t x, int32_t g)
 {
     unsigned n = n_q16 >> 16;
     int32_t frac = (int32_t)((n_q16 >> 1) & 32767U);
@@ -830,7 +849,7 @@ static inline LUSH_CODE int32_t allpass_mod(struct line *l, uint32_t n_q16, int3
     push(l, v);
     return d + ((v * g) >> 15);
 }
-static LUSH_CODE void reverb_sample(int32_t input, int32_t out[2])
+static inline LUSH_HOT void reverb_sample(int32_t input, int32_t out[2])
 {
     int32_t decay = fx_decay, damp = fx_damp;
     if (fx_shimmer) /* feed the octave-up tail back in */
@@ -873,7 +892,7 @@ static int32_t dc_in[2], dc_out[2]; /* dc_out is Q8 above the signal */
 static int32_t analog_lp[2];
 /* Analog output stage: gentle even+odd saturation, then a soft roll-off near
  * 9 kHz so nothing reads as glassy. Its small DC is removed by dc_block. */
-static inline LUSH_CODE int32_t analog(unsigned ch, int32_t x)
+static inline LUSH_HOT int32_t analog(unsigned ch, int32_t x)
 {
     x = clamp15(x);
 #if LUSH_ANALOG
@@ -885,13 +904,13 @@ static inline LUSH_CODE int32_t analog(unsigned ch, int32_t x)
     analog_lp[ch] += ((y - analog_lp[ch]) * 23500) >> 15;
     return analog_lp[ch];
 }
-static inline LUSH_CODE int32_t dc_block(unsigned ch, int32_t x)
+static inline LUSH_HOT int32_t dc_block(unsigned ch, int32_t x)
 {
     int32_t y = ((x - dc_in[ch]) << 8) + (int32_t)(((int64_t)dc_out[ch] * 32675) >> 15);
     dc_in[ch] = x; dc_out[ch] = y;
     return y >> 8;
 }
-static inline LUSH_CODE int32_t soft_limit(int32_t x)
+static inline LUSH_HOT int32_t soft_limit(int32_t x)
 {
     /* Transparent below ~0.7, rounds off peaks instead of hard clipping. */
     const int32_t knee = 23000;

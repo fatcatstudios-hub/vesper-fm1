@@ -863,6 +863,7 @@ static unsigned tone_parameter(unsigned col)
     }
     return 255;
 }
+#if !WORSHIP_SLIM
 static __attribute__((noinline)) void track_lfo_draw(void)
 {
     const uint8_t *v = frame_patch;
@@ -893,6 +894,7 @@ static __attribute__((noinline)) void track_lfo_draw(void)
     }
     text(8, 231, "LFO BACK  HOME TRACKS", 1, DIM, BACK);
 }
+#endif
 static void tone_label(unsigned parameter, unsigned value, const fm1_param_t *p, char out[12])
 {
     unsigned type = groove_source_type(track);
@@ -906,6 +908,7 @@ static void tone_label(unsigned parameter, unsigned value, const fm1_param_t *p,
                                   : 0),
                 1);
 }
+#if !WORSHIP_SLIM
 static __attribute__((noinline)) void tone_draw(const uint8_t values[GROOVE_TONE_PARAMS])
 {
     if (paint_rendering && (paint_top >= 195 || paint_top + PAINT_ROWS <= 32)) return;
@@ -982,6 +985,7 @@ static __attribute__((noinline)) void tone_draw(const uint8_t values[GROOVE_TONE
         }
     }
 }
+#endif /* !WORSHIP_SLIM */
 static __attribute__((noinline)) void mix_draw(const struct groove_view v[8])
 {
     if (paint_rendering && (paint_top >= 184 || paint_top + PAINT_ROWS <= 32)) return;
@@ -1413,21 +1417,56 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         text(8, 231, "EDIT BACK  HOLD EDIT MORE", 1, DIM, BACK);
     }
 }
+/* Boot: four prism rings bloom outward dot by dot, a bright comet circles
+ * each ring at its own speed (alternate rings counter-rotate), the centre
+ * breathes, and WORSHIP spells itself out underneath. boot_phase counts
+ * 30 ms ticks. Everything is cached, so each frame repaints only what moved. */
+enum { BOOT_X = 120, BOOT_Y = 90, BOOT_TICKS = 90 };
 static __attribute__((noinline, cold, minsize)) void boot_draw(void)
 {
+    static const uint8_t radius[4] = {24, 40, 56, 72};
+    static const char title[] = "WORSHIP";
+    unsigned tick = boot_phase;
     if (cache->title_cache != 0) {
         cache->title_cache = 0;
-        text(86, 48, "FM1", 4, TEXT, BACK);
-        text(99, 98, "WORSHIP", 1, ACCENT, BACK);
-        text((240 - 12 * (sizeof WORSHIP_VERSION - 1)) / 2, 120, WORSHIP_VERSION, 2, TEXT, BACK);
-        text(102, 208, "M-VAVE", 1, DIM, BACK);
+        text((240 - 6 * 18) / 2, 216, "BY FAT CAT STUDIOS", 1, DIM, BACK);
     }
-    if (cache->middle_cache == boot_phase) return;
-    cache->middle_cache = boot_phase;
-    static const uint8_t height[8] = {8, 18, 30, 42, 42, 30, 18, 8};
-    for (unsigned i = 0; i < 8; ++i)
-        paint_fill(58 + 16 * i, 166 - height[i] / 2, 12, height[i],
-                   i < boot_phase ? colors[i] : PANEL);
+    for (unsigned t = 0; t < 4; ++t) {
+        int shown = ((int)tick - 4 * (int)t) * 2;
+        unsigned turn = tick > 10U ? (tick - 10U) * (5U - t) / 3U + t * 4U : 99U;
+        unsigned head = turn == 99U ? 99U : (t & 1U) ? 15U - (turn & 15U) : turn & 15U;
+        for (unsigned i = 0; i < 16; ++i) {
+            uint32_t sig = (shown > (int)i) | ((i == head) << 1);
+            if (sig == cache->cell_cache[t][i]) continue;
+            cache->cell_cache[t][i] = sig;
+            int r = radius[t], size = t >= 2 ? 3 : 2;
+            int x = BOOT_X + (orbit_sin[i] * r) / 64, y = BOOT_Y - (orbit_sin[(i + 4) & 15] * r) / 64;
+            paint_fill((unsigned)(x - size - 2), (unsigned)(y - size - 2), (unsigned)(2 * size + 5), (unsigned)(2 * size + 5), BACK);
+            if (sig & 2U) diamond(x, y, size + 2, TEXT);
+            else if (sig) diamond(x, y, size, colors[(t + 4) & 7]);
+        }
+    }
+    /* Centre: a diamond that breathes once the inner ring is drawn. */
+    unsigned beat = tick % 20U, pulse = tick < 8U ? 0U : 3U + (beat < 10U ? beat : 20U - beat) / 2U;
+    if (cache->middle_cache != pulse) {
+        cache->middle_cache = pulse;
+        paint_fill(BOOT_X - 10, BOOT_Y - 10, 21, 21, BACK);
+        if (pulse) { diamond(BOOT_X, BOOT_Y, (int)pulse, ACCENT); diamond(BOOT_X, BOOT_Y, (int)pulse / 2, TEXT); }
+    }
+    /* Title letters, then the version once the word is complete. */
+    unsigned letters = tick < 22U ? 0U : (tick - 22U) / 2U + 1U;
+    if (letters > 7U) letters = 7U;
+    unsigned from = cache->hint_cache > 8U ? 0U : cache->hint_cache;
+    if (letters != cache->hint_cache) {
+        /* The newest letter glows in the accent colour; earlier ones settle to white. */
+        for (unsigned k = from ? from - 1U : 0U; k < letters; ++k) {
+            char one[2] = {title[k], 0};
+            text(57 + 18 * k, 176, one, 3, k + 1U == letters && letters < 7U ? ACCENT : TEXT, BACK);
+        }
+        if (letters == 7U)
+            text((240 - 6 * (sizeof WORSHIP_VERSION - 1)) / 2, 202, WORSHIP_VERSION, 1, ACCENT, BACK);
+        cache->hint_cache = letters;
+    }
 }
 static void draw_page_body(const struct fm1_ble_status *ble)
 {
@@ -1483,10 +1522,12 @@ static void draw_page_body(const struct fm1_ble_status *ble)
         }
         return;
     }
+#if !WORSHIP_SLIM
     if (visible == FM_LFO && v->type != GROOVE_DX7) {
         track_lfo_draw();
         return;
     }
+#endif
     const uint8_t *patch = frame_patch;
     const struct groove_fm_controls controls = frame_controls;
     if (visible == OVERVIEW)
@@ -1495,9 +1536,12 @@ static void draw_page_body(const struct fm1_ble_status *ble)
         steps(v);
     else if (visible == MIX)
         mix_draw(views);
+#if !WORSHIP_SLIM /* stock tone pages do not drive LUSH voices; 0.7 replaces them */
     else if (visible == TONE_EDIT || (visible == FM_ENV && v->type != GROOVE_DX7)) {
         tone_draw(patch);
-    } else {
+    }
+#endif
+    else {
 #if WORSHIP_SLIM
         (void)patch; (void)controls;
         if (cache->middle_cache != 1U) {
@@ -1695,8 +1739,8 @@ static void draw(const struct fm1_ble_status *ble)
     unsigned visible = glo_down && glo_used ? MIX : page;
     frame_time = fm1_millis();
     if (boot_active) {
-        boot_phase = (frame_time - boot_started) / 120U;
-        if (boot_phase > 8) boot_phase = 8;
+        boot_phase = (frame_time - boot_started) / 30U;
+        if (boot_phase > BOOT_TICKS) boot_phase = BOOT_TICKS;
     }
     if (notice && (int32_t)(frame_time - notice_until) >= 0) notice = NULL;
     for (unsigned t = 0; t < 8; ++t) {
@@ -2734,7 +2778,7 @@ void groove_screen_control(void)
                              encoder_active(controls.encoders);
     /* The logo never blocks control/audio or consumes the first gesture.
      * Ignore the initial MASTER ADC pickup when deciding whether to skip. */
-    if (boot_active && (now - boot_started >= 1200U || controls.buttons || controls.keys ||
+    if (boot_active && (now - boot_started >= 2700U || controls.buttons || controls.keys ||
         encoder_active(controls.encoders) || (master_changed && now - boot_started >= 150U))) {
         boot_active = 0;
         input_changed = 1;

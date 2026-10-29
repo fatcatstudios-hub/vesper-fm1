@@ -21,21 +21,19 @@ FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
 {
     if (!output) return;
     lush_render(output); /* WORSHIP: analog/string voices for LUSH tracks */
-    /* WORSHIP master high-pass: two 1-pole stages (12 dB/oct) at about 40 Hz
-     * clear sub rumble and DC so the low end stays tight under a band. State
-     * is the low-passed signal in Q16 above the sample; the only multiply is
+    /* WORSHIP master high-pass: 12 dB/oct Butterworth at 30 Hz (state-variable,
+     * Q 0.707) clears sub rumble and DC while leaving bass notes alone
+     * (-0.3 dB at 60 Hz). States are Q16 above the sample; every multiply is
      * 32x32->64, which the compiler keeps inline (no flash helper). */
     {
-        static int64_t hp[4];
+        static int64_t low[2], band[2];
         for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) {
-            int64_t *st = &hp[(i & 1U) * 2U];
-            int32_t x = output[i];
-            for (unsigned k = 0; k < 2; ++k) {
-                int32_t low = (int32_t)(st[k] >> 16);
-                st[k] += (int64_t)(x - low) * 373; /* 2*pi*40/44100 in Q16 */
-                x -= low;
-            }
-            output[i] = x;
+            unsigned c = i & 1U;
+            int32_t b = (int32_t)(band[c] >> 16);
+            low[c] += (int64_t)b * 280;                       /* 2 sin(pi 30/44100), Q16 */
+            int32_t high = output[i] - (int32_t)(low[c] >> 16) - (int32_t)(((int64_t)b * 92682) >> 16);
+            band[c] += (int64_t)high * 280;
+            output[i] = high;
         }
     }
     unsigned target = fm1_engine_output_level();
