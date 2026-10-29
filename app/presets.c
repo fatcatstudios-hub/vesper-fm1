@@ -36,7 +36,7 @@ struct scene {
 /* Pattern ids: ARP/LEAD use the sequence bank, BASS the bass bank, BEAT the
  * beat bank; PAD ignores it (sustained open chord). */
 enum { S_DOTTED8, S_ROLL3, S_STAIRS, S_OCTAVES, S_GALLOP, S_SYNC, S_DOTTED_RISE, S_PULSE16,
-       S_8THS, S_BELLS, S_SPARSE, S_PAIRS, S_CASCADE, S_UPDOWN, S_SWELL, SEQUENCES };
+       S_8THS, S_BELLS, S_SPARSE, S_PAIRS, S_CASCADE, S_UPDOWN, S_SWELL, S_SWELL2, SEQUENCES };
 enum { B_DRONE, B_PULSE8, B_PULSE16, B_SYNC, B_HEART, B_QUARTER, B_DOTTED, BASSES };
 enum { D_HEART, D_FLOOR, D_HALF };
 #define GLS_ LUSH_GLASS_PLUCK
@@ -82,7 +82,7 @@ static const struct scene scenes[GROOVE_FACTORY_PROJECTS] = {
 #undef T
 #else
 static const struct scene scenes[GROOVE_FACTORY_PROJECTS] = {
-    {"DOTTED 8TH",  72, 4,104,64,96, {LU(ARP,124,7,13), LU(LEAD,86,10,12), LU(BASS,98,1,2), LU(LEAD,74,13,10)},  {S_8THS,S_ROLL3,B_PULSE8,S_SWELL},         {MGT_,HAL_,DBS_,RVG_}, 15},
+    {"DOTTED 8TH",  72, 4,104,64,96, {LU(ARP,124,7,13), LU(LEAD,86,10,12), LU(BASS,98,1,2), LU(LEAD,74,13,10)},  {S_8THS,S_ROLL3,B_PULSE8,S_SWELL2},        {MGT_,HAL_,DBS_,RVG_}, 15},
     {"ROLLING 3S",  76, 7,104,60,94, {LU(ARP,104,7,12), LU(LEAD,84,11,12), LU(BASS,96,1,0), LU(LEAD,84,13,11)},              {S_ROLL3,S_SPARSE,B_HEART,S_SWELL},       {DPL_,HPN_,WBS_,RVG_}, 20},
     {"STAIRCASE",   80, 2, 98,58,92, {LU(ARP,96,6,11), LU(LEAD,90,9,13), LU(BASS,100,1,1), LU(LEAD,74,12,12)},               {S_STAIRS,S_DOTTED8,B_SYNC,S_SPARSE},       {SAW_,MAR_,DBS_,VOO_}, 10},
     {"OCTAVE RUN",  84, 9, 96,56,90, {LU(ARP,104,6,10), LU(LEAD,86,8,12), LU(BASS,100,1,0), LU(LEAD,80,11,12)},              {S_OCTAVES,S_SYNC,B_PULSE16,S_BELLS},     {JUN_,GLS_,DBS_,GLK_}, 10},
@@ -256,6 +256,7 @@ static const struct sequence sequences[SEQUENCES] = {
     [S_CASCADE] = {16, 6, {137,103,69,35,120,86,52,18}},
     [S_UPDOWN] = {16, 10, {1,2,3,4,5,4,3,2}},
     [S_SWELL] = {16, 15, {0,0,0,0,4,0,0,0}},
+    [S_SWELL2] = {32, 15, {0,0,0,0,4,0,0,0}},  /* the same swell, every other bar */
 };
 /* Bass degrees: 0 root, 1 fifth, 2 octave. */
 static const struct sequence basses[BASSES] = {

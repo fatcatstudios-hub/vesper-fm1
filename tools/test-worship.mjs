@@ -53,7 +53,7 @@ check(playing.peak < 1.0, 'no hard clipping');
 // Loop lengths: DOTTED 8TH runs 16 / 48 / 16 / 16-step loops against each other.
 const st = mem().slice(x.sim_state(), x.sim_state() + 225);
 const lengths = [0, 1, 2, 3].map((t) => st[209 + t]);
-check(JSON.stringify(lengths) === JSON.stringify([16, 48, 16, 16]), `polymetric loop lengths ${lengths.join('/')}`);
+check(JSON.stringify(lengths) === JSON.stringify([16, 48, 16, 32]), `polymetric loop lengths ${lengths.join('/')}`);
 
 // Chord follow is tested on MORNING: kalimba ARP (track 1), marimba LEAD, bass, vocal LEAD (no pads).
 x.sim_preset(5); render(10);

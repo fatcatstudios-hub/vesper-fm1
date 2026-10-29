@@ -46,11 +46,27 @@ static const struct { int16_t x, y; int32_t r2, inv; uint8_t r, g, b; } glows[3]
 /* Indigo to violet, top to bottom, dithered against banding, with three soft glows. */
 static uint16_t frost(unsigned x, unsigned y, unsigned glass)
 {
+    /* Same pixels as before, computed faster: fills run left to right, so the
+     * row's base colour and each glow's distance are carried from the previous
+     * pixel instead of being worked out again (no tables, no extra RAM). */
+    static unsigned row = ~0U, last_x = ~0U, carried;
+    static int base_r, base_g, base_b[2], dist[3], dy2[3];
     if (y >= 240) y = 239;
+    if (y != row) {
+        row = y; carried = 0;
+        base_r = 1 + (int)(y * 3U + 60U) / 240; base_g = 4 + (int)y / 120;
+        base_b[0] = 4 + (int)(y * 4U) / 240; base_b[1] = 4 + (int)(y * 4U + 30U) / 240;
+        for (unsigned i = 0; i < 3; ++i) { int dy = (int)y - glows[i].y; dy2[i] = dy * dy; }
+    }
+    if (carried && x == last_x + 1U)
+        for (unsigned i = 0; i < 3; ++i) dist[i] += 2 * ((int)x - glows[i].x) - 1; /* (dx)^2 - (dx-1)^2 */
+    else
+        for (unsigned i = 0; i < 3; ++i) { int dx = (int)x - glows[i].x; dist[i] = dx * dx + dy2[i]; }
+    last_x = x; carried = 1;
     unsigned dither = (x ^ y) & 1U;
-    int r = 1 + (int)(y * 3U + 60U) / 240, g = 4 + (int)y / 120 + (int)dither, b = 4 + (int)(y * 4U + 30U * dither) / 240;
+    int r = base_r, g = base_g + (int)dither, b = base_b[dither];
     for (unsigned i = 0; i < 3; ++i) {
-        int dx = (int)x - glows[i].x, dy = (int)y - glows[i].y, d2 = dx * dx + dy * dy;
+        int d2 = dist[i];
         if (d2 >= glows[i].r2) continue;
         int w = (int)((uint32_t)(glows[i].r2 - d2) * (uint32_t)glows[i].inv >> 16);
         w = (w * w) >> 8;
@@ -176,7 +192,7 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
 /* Eight tracks stay visible on HOME. SEQ maps the sixteen white keys to one
  * quarter of the 64-step pattern. All drawing and edits run on app_control. */
 enum { OVERVIEW, STEPS, FM_EDIT, FM_ENV, FM_LFO, TONE_EDIT, MIX, BLE, PROJECT, NAME, EFFECTS, SOURCE, ACTIONS, STEP_EDIT, RHYTHM, FM_QUICK, PRESET_BROWSER, ARP_EDIT,
-       V_EDIT, V_ENV, V_LFO, V_SCOPE, /* VESPER voice pages and the master scope */
+       V_EDIT, V_ENV, V_LFO, V_SCOPE, V_GLOBAL, /* VESPER voice pages, scope, settings */
        STARTUP };
 enum { OCT_DOWN, OCT_UP, FX, SCL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
 #define BUTTON(b) (1U << (b))
@@ -257,7 +273,8 @@ static uint32_t edit_ms;
 static unsigned seq_down;
 static uint32_t seq_ms;
 static unsigned arp_down, arp_long;
-static unsigned v_edit, v_filter_env, play_mode; /* VESPER page state; ARP = play mode */
+static unsigned v_edit, v_filter_env, play_mode, v_global_row;
+static unsigned battery_adc = 900, page_draw_ms; /* smoothed battery ADC; last full page repaint */ /* VESPER page state; ARP = play mode */
 static uint32_t arp_ms;
 static char project_stored[13];
 static int project_stored_result;
@@ -506,7 +523,10 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
     unsigned paused = !v->playing && !groove_sequence_rewound();
     unsigned count = (groove_sequence_count_in() + 3U) / 4U;
     if (count > 4) count = 4;
-    uint32_t sig = v->tempo | ((uint32_t)v->play_step << 10) |
+    unsigned percent = battery_adc <= 640U ? 0U : battery_adc >= 900U ? 100U : (battery_adc - 640U) * 100U / 260U;
+    percent = percent / 5U * 5U;
+    unsigned beat = (v->play_step & 63U) / 4U; /* bar.beat: changes on quarter notes, not 16ths */
+    uint32_t sig = percent | ((uint32_t)beat << 10) |
         ((uint32_t)v->playing << 16) | (writing << 17) |
         ((uint32_t)v->clock_mode << 18) | ((uint32_t)v->clock_state << 19) | (step_follow << 22) | (groove_arp_enabled(track) << 23) |
         ((uint32_t)(v->sequence_length >> 4) << 24) | (groove_project_dirty() << 27) | (paused << 28) | (count << 29);
@@ -517,31 +537,31 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
     cache->header_cache = sig;
     if (first) {
         paint_fill(0, 0, 240, 30, BACK);
-        text(122, 7, "/", 1, DIM, BACK);
     }
     if (first || (changed & (1U << 27)))
         text(165, 19, groove_project_dirty() ? "*" : " ", 1, AMBER, BACK);
-    if (first || (changed & (7U << 24)))
-        number(128, 7, v->sequence_length, 2, 1, DIM, BACK);
     /* Fixed-width glyphs replace their own background; a moving playhead
      * only updates its two digits and, at a page boundary, two indicators. */
     if (first || (changed & 1023U)) {
-        if (v->clock_mode && !v->tempo)
-            text(8, 2, "---", 2, DIM, BACK);
-        else
-            number(8, 2, v->tempo, 3, 2, TEXT, BACK); /* rows 2-15: one paint band, no tearing */
-    }
-    if (first || (changed & (7U << 18))) {
-        paint_fill(45, 9, 32, 7, BACK);
-        text(45, 9, !v->clock_mode ? "BPM" : v->clock_state == GROOVE_CLOCK_LOST
-            ? "LOST" : v->clock_state == GROOVE_CLOCK_LOCKED ? (groove_midi_setting(track,6) == 1 ? "USB" : groove_midi_setting(track,6) == 2 ? "BLE" : groove_midi_setting(track,6) == 3 ? "DIN" : "EXT") : "WAIT",
-            1, v->clock_state == GROOVE_CLOCK_LOST ? AMBER : DIM, BACK);
+        /* Crystal battery: a faceted cell with four charge bars. */
+        uint16_t fill = percent < 25U ? AMBER : ACCENT;
+        paint_fill(8, 6, 26, 14, BACK);
+        frame(8, 6, 24, 14, TEXT);
+        paint_fill(32, 10, 2, 6, TEXT);
+        for (unsigned i = 0; i < 4; ++i)
+            paint_fill(11 + 5 * i, 9, 4, 8, percent > i * 25U ? fill : PANEL);
+        char pct[6];
+        decimal(pct, (int)percent, 1); strcat(pct, "%");
+        paint_fill(38, 9, 30, 7, BACK);
+        text(38, 9, pct, 1, percent < 25U ? AMBER : DIM, BACK);
     }
     if (first || (changed & ((1U << 16) | (1U << 28))))
         text(80, 7, v->playing ? "PLAY " : paused ? "PAUSE" : "STOP ", 1,
              v->playing ? GREEN : paused ? AMBER : DIM, BACK);
-    if (first || (changed & (63U << 10)))
-        number(110, 7, v->play_step + 1, 2, 1, TEXT, BACK);
+    if (first || (changed & (63U << 10))) {
+        char at[4] = {(char)('1' + beat / 4U), '.', (char)('1' + beat % 4U), 0};
+        text(112, 7, at, 1, TEXT, BACK);
+    }
     for (unsigned i = 0; i < 4; ++i) {
         unsigned active = v->playing && i == v->play_step / 16;
         unsigned was_active = (previous & (1U << 16)) && i == ((previous >> 14) & 3U);
@@ -1332,7 +1352,7 @@ static void leds(const struct groove_view *v, unsigned visible)
         | ((visible == FM_EDIT && (fm_group == 4 || fm_group == 5)) << SCL)
         | ((visible == STEPS || visible == ACTIONS || visible == STEP_EDIT || visible == RHYTHM) << SEQ)
         | ((writing != 0) << REC)
-        | ((v->playing != 0) << PLAY) | ((visible == MIX) << GLO)
+        | ((v->playing != 0) << PLAY) | ((visible == V_GLOBAL) << GLO)
         | ((visible == FM_EDIT || visible == TONE_EDIT || visible == FM_QUICK || visible == STEP_EDIT) << EDIT)
         | ((visible == FM_ENV) << ENV) | ((visible == FM_LFO) << LFO)
         | ((visible == PROJECT || visible == SOURCE || (visible == ACTIONS && action_confirm)) << SAVE);
@@ -1558,8 +1578,83 @@ static unsigned vesper_bar(unsigned id)
     int v = lush_param_get(track, id) + (id == LP_ENV ? 60 : id == LP_OCTAVE ? 2 : 0);
     return (unsigned)clamp(v * 64 / span[id], 0, 64);
 }
+/* GLO: global settings. SELECT picks a row, K1 changes it. */
+enum { G_CLOCK, G_CLOCK_IN, G_CLOCK_OUT, G_MIDI_OUT, G_KEYS_OUT, G_LOCAL, G_THRU_IN, G_THRU_OUT,
+       G_BLUETOOTH, G_SWING, G_CLICK, G_BATTERY, G_PAGE_DRAW, G_VERSION, G_ROWS };
+static const char *const global_names[G_ROWS] = {"CLOCK", "CLOCK IN", "CLOCK OUT", "MIDI OUT", "KEYS TO MIDI",
+    "LOCAL SOUND", "THRU FROM", "THRU TO", "BLUETOOTH", "SWING", "CLICK", "BATTERY", "PAGE DRAW", "VERSION"};
+static __attribute__((noinline)) void global_value(unsigned row, char out[12])
+{
+    static const char *const ports[] = {"OFF", "DIN", "USB", "DIN+USB", "BLE", "DIN+BLE", "USB+BLE", "ALL"};
+    static const char *const sources[] = {"AUTO", "USB", "BLE", "DIN"}, *const thru[] = {"DIN", "USB", "BLE"};
+    static const char *const clicks[] = {"OFF", "REC", "ON"};
+    static const uint8_t midi[G_ROWS] = {[G_CLOCK_OUT] = 5, [G_MIDI_OUT] = 2, [G_KEYS_OUT] = 4, [G_LOCAL] = 3,
+                                         [G_THRU_IN] = 7, [G_THRU_OUT] = 8};
+    unsigned v = midi[row] ? groove_midi_setting(0, midi[row]) : 0;
+    switch (row) {
+    case G_CLOCK: strcpy(out, groove_clock_mode() ? "MIDI" : "INTERNAL"); break;
+    case G_CLOCK_IN: strcpy(out, sources[groove_midi_setting(0, 6) & 3U]); break;
+    case G_MIDI_OUT: case G_THRU_OUT: strcpy(out, ports[v & 7U]); break;
+    case G_THRU_IN: strcpy(out, thru[v % 3U]); break;
+    case G_BLUETOOTH: strcpy(out, groove_settings_radio_flags() & GROOVE_RADIO_ON ? "ON" : "OFF"); break;
+    case G_SWING: decimal(out, (int)groove_sequence_setting(0), 1); strcat(out, "%"); break;
+    case G_CLICK: strcpy(out, clicks[groove_sequence_setting(1) % 3U]); break;
+    case G_BATTERY: decimal(out, (int)battery_adc, 1); strcat(out, " ADC"); break;
+    case G_PAGE_DRAW: decimal(out, (int)page_draw_ms, 1); strcat(out, " MS"); break;
+    case G_VERSION: strcpy(out, SHOWN_VERSION); break;
+    default: strcpy(out, v ? "ON" : "OFF");
+    }
+}
+static void global_edit(unsigned row, int delta)
+{
+    static const uint8_t midi[G_ROWS] = {[G_CLOCK_IN] = 6, [G_CLOCK_OUT] = 5, [G_MIDI_OUT] = 2, [G_KEYS_OUT] = 4,
+                                         [G_LOCAL] = 3, [G_THRU_IN] = 7, [G_THRU_OUT] = 8};
+    if (!delta) return;
+    if (row == G_CLOCK) groove_settings_clock(delta > 0 ? GROOVE_CLOCK_MIDI : GROOVE_CLOCK_INTERNAL);
+    else if (midi[row]) groove_settings_midi(0, midi[row], delta);
+    else if (row == G_BLUETOOTH) {
+        unsigned flags = groove_settings_radio_flags();
+        flags = delta > 0 ? flags | GROOVE_RADIO_ON : flags & ~(unsigned)GROOVE_RADIO_ON;
+        if (flags != groove_settings_radio_flags()) (void)groove_settings_radio(flags, groove_settings_role_value());
+    } else if (row == G_SWING || row == G_CLICK) groove_sequence_setting_edit(row == G_SWING ? 0 : 1, delta);
+}
+static __attribute__((noinline)) void global_draw(void)
+{
+    if (paint_rendering && paint_top + PAINT_ROWS <= 32) return;
+    unsigned first = v_global_row < 3 ? 0 : v_global_row - 3 > G_ROWS - 7 ? G_ROWS - 7 : v_global_row - 3;
+    if (cache->title_cache != first * 64U + v_global_row + 7000U) {
+        cache->title_cache = first * 64U + v_global_row + 7000U;
+        memset(cache->tile_cache, 0xff, sizeof cache->tile_cache);
+        paint_fill(0, 32, 240, 160, BACK);
+        text(8, 36, "GLO", 1, DIM, BACK);
+        text(40, 34, "SETTINGS", 2, ACCENT, BACK);
+    }
+    for (unsigned i = 0; i < 7; ++i) {
+        unsigned row = first + i, on = row == v_global_row;
+        char value[12];
+        global_value(row, value);
+        uint32_t sig = signature(row * 2U + on, value, (unsigned)strlen(value));
+        if (cache->tile_cache[i] == sig) continue;
+        cache->tile_cache[i] = sig;
+        unsigned y = 58 + 19 * i;
+        uint16_t bg = on ? PANEL : BACK;
+        paint_fill(6, y, 228, 17, bg);
+        if (on) paint_fill(6, y, 3, 17, ACCENT);
+        text(14, y + 5, global_names[row], 1, on ? TEXT : DIM, bg);
+        text(232 - 6 * (unsigned)strlen(value), y + 5, value, 1, on ? ACCENT : TEXT, bg);
+    }
+    if (paint_rendering && paint_top + PAINT_ROWS <= 190) return;
+    char value[12];
+    global_value(v_global_row, value);
+    knob(0, global_names[v_global_row], value, ACCENT);
+    for (unsigned c = 1; c < 4; ++c) knob(c, "", "", DIM);
+    const char *hint = notice ? notice : "SELECT ROW   K1 CHANGE";
+    uint32_t h = signature(1, hint, (unsigned)strlen(hint));
+    if (cache->hint_cache != h) { cache->hint_cache = h; paint_fill(0, 229, 240, 11, BACK); text(8, 231, hint, 1, DIM, BACK); }
+}
 static __attribute__((noinline)) void vesper_page_draw(unsigned visible)
 {
+    if (visible == V_GLOBAL) { global_draw(); return; }
     static const char *const edit_titles[4] = {"SOUND", "TONE", "OSC", "VOICE"};
     const char *title = visible == V_EDIT ? edit_titles[v_edit] : visible == V_ENV ? (v_filter_env ? "FILTER ENV" : "AMP ENV")
                       : visible == V_LFO ? "MOTION" : "MASTER SCOPE";
@@ -1644,6 +1739,11 @@ static __attribute__((noinline)) void vesper_page_draw(unsigned visible)
 /* Control task: ALGORITHM focuses a voice, K1-K4 edit, SELECT pages within. */
 static void vesper_controls(const struct fm1_controls *controls)
 {
+    if (page == V_GLOBAL) {
+        v_global_row = (unsigned)clamp((int)v_global_row + controls->encoders[0], 0, G_ROWS - 1);
+        global_edit(v_global_row, controls->encoders[2]);
+        return;
+    }
     if (controls->encoders[1]) select_track(controls->encoders[1]);
     if (page == V_SCOPE) return;
     if (page == V_ENV && controls->encoders[0]) v_filter_env = controls->encoders[0] > 0;
@@ -1935,7 +2035,7 @@ static void draw_page_body(const struct fm1_ble_status *ble)
                            ? "PRESETS SOURCE  EDIT PARAMETERS"
                        : visible == OVERVIEW ? "PRESETS SCENE  ALGO LAYER"
                        : visible == STEPS    ? "PRESETS STEP  OCT PAGE  HOLD SEQ MORE"
-                       : visible == MIX      ? "KEYS MUTE/SOLO  GLO / HOME BACK"
+                       : visible == MIX      ? "KEYS MUTE/SOLO  HOME NEXT"
                        : visible == FM_EDIT  ? "BLACK OP  SELECT PAGE  EDIT BACK"
                        : visible == FM_ENV && v->type != GROOVE_DX7 ? "ENV BACK  SELECT TRACK"
                        : visible == FM_ENV   ? "PRESETS ENV ON/OFF  HOME TRACKS"
@@ -2459,9 +2559,13 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         glo_down = 0; project_refresh();
         goto controls_done;
     }
+#if WORSHIP_SLIM
+    if (pressed & BUTTON(GLO)) { page = page == V_GLOBAL ? OVERVIEW : V_GLOBAL; goto controls_done; }
+#else
     if (pressed & BUTTON(GLO)) {
         glo_down = 1; glo_used = 0; glo_ms = now; blocked_keys |= old_keys;
     }
+#endif
     if (glo_down || page == MIX) {
         if (glo_down && (now - glo_ms >= 600U || key_down || encoder_active(controls->encoders)))
             glo_used = 1;
@@ -3149,6 +3253,14 @@ void groove_screen_control(void)
             boot_waiting = 0;
             boot_started = now;
         }
+    }
+    battery_adc = (battery_adc * 15U + controls.battery + 8U) / 16U;
+    {   /* GLO > PAGE DRAW: how long the last full page change took to reach the glass. */
+        static unsigned timing, shown = ~0U; static uint32_t since;
+        unsigned clean = 1;
+        for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) clean = 0;
+        if (saved_cache.shown_page != shown) { shown = saved_cache.shown_page; since = now; timing = 1; }
+        else if (timing && clean) { page_draw_ms = now - since; timing = 0; }
     }
 #if VESPER_FAST_PAGES
     /* Faster page changes: while bands are still waiting, ask for the next
