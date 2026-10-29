@@ -2342,6 +2342,14 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         seq_down = 1; seq_ms = now;
     }
     if (page == OVERVIEW || page == STEPS) music_page = page;
+#if WORSHIP_SLIM
+    /* VESPER: recording belongs to PLAY mode (ARP on). In SEQ mode the keys
+     * set the song's key, so REC only explains itself. */
+    if ((pressed & BUTTON(REC)) && !play_mode && !writing) {
+        pressed &= ~BUTTON(REC);
+        notice = "PRESS ARP FOR PLAY MODE TO RECORD"; notice_until = now + 2000U;
+    }
+#endif
     if (pressed & BUTTON(REC)) rec_before_press = writing;
     /* HOME defers REC until release so REC+SELECT never starts a take.
      * A held gesture preserves the previous recording state. */
@@ -2435,6 +2443,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         blocked_keys |= controls->keys;
         if (!release_keys()) return 0;
         play_mode ^= 1U; arp_down = arp_long = 0;
+        if (!play_mode && writing) { writing = 0; groove_edit_record(0, track, cursor); } /* leaving PLAY ends a take */
         notice = play_mode ? "PLAY MODE - KEYS PLAY THE VOICE" : "SEQ MODE - KEYS SET THE KEY";
         notice_until = now + 2000U;
         goto controls_done;
@@ -3079,7 +3088,7 @@ controls_done:
     if (page == TONE_EDIT && groove_source_type(track) == GROOVE_303)
         keys &= ~((1U << edit_keys[8]) | (1U << edit_keys[9]));
     /* WORSHIP: on HOME the keys pick the chord the scene follows. */
-    if (writing && !mode && !glo_down && lush_track_name(track)) {
+    if (writing && play_mode && !mode && !glo_down && lush_track_name(track)) {
         /* VESPER REC: keys write notes into the focused voice's sequence. Playing:
          * at the current step (live). Stopped: at the cursor, which then moves on
          * (step entry). The keys are heard through the voice as they are played. */
