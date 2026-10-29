@@ -129,7 +129,7 @@ static int8_t voice_octave[TRACKS];
 static volatile int32_t fx_decay = 26000, fx_feedback = 12000, fx_wet = 20000, fx_damp = 9000;
 static volatile uint32_t delay_q16 = 11025U << 16; /* half-rate samples, Q16 */
 static volatile uint32_t beat_inc = 0;    /* per-sample step of a 16-beat (4-bar) phase */
-static volatile int32_t fx_shimmer = 0;   /* Q15 */
+static volatile int32_t fx_grains = 0;    /* CLOUD GRAINS amount, 0..127 */
 /* VESPER master FX (0.8), set by lush_master(): CLOUD, TAPE and DIRT pages. */
 static volatile int32_t fx_tone = 0, fx_width = 32768, fx_chorus = 19661;
 static volatile int32_t fx_hp = 0, fx_lp = 32767, fx_sat = 0, fx_age = 32767, fx_hiss = 0;
@@ -283,7 +283,7 @@ __attribute__((minsize)) void lush_effects(const uint8_t fx[4], unsigned delay_t
     lush_tables_build();
     if (tempo >= 30 && tempo <= 300)
         beat_inc = (uint32_t)(((uint64_t)tempo << 32) / (60ULL * 44100ULL * 16ULL));
-    fx_shimmer = (int32_t)(shimmer > 127 ? 127 : shimmer) * 180;   /* 0 .. 0.70: band-limited, so it can bloom */
+    fx_grains = (int32_t)(shimmer > 127 ? 127 : shimmer);      /* CLOUD GRAINS (was shimmer) */
     fx_decay = 15000 + (int32_t)fx[0] * 121;   /* 0.46 .. 0.93 */
     fx_damp = 13000 - (int32_t)fx[0] * 40 + fx_tone; /* longer tails are a touch brighter; CLOUD TONE darkens */
     if (fx_damp < 0) fx_damp = 0;
@@ -951,41 +951,87 @@ static int32_t rev_bandwidth, rev_lp_l, rev_lp_r, rev_prev[2], rev_out[2], rev_l
 /* Shimmer: an octave-up granular pitch shifter in the reverb's feedback, so
  * the tail keeps blooming upward. Two read heads sweep a 46 ms window at
  * double speed, crossfaded with triangles (half rate, 22.05 kHz). */
-/* Shimmer, in the spirit of the big studio shimmers: the reverb tail is
- * band-limited (so nothing aliases or fizzes), shifted up an octave with long
- * 93 ms grains at 11 kHz (smooth, no warble), and fed back into the tank, so
- * octaves bloom slowly out of the tail and each pass gets softer, not harsher. */
-enum { SHIMMER_LEN = 2048, SHIMMER_WINDOW = 1024 };
-static int16_t shimmer_line[SHIMMER_LEN];
-static unsigned shimmer_write, shimmer_phase, shimmer_odd;
-static int32_t shimmer_lp1, shimmer_lp2, shimmer_hp, shimmer_held, shimmer_prev, shimmer_y, shimmer_soft, shimmer_soft2;
-static inline LUSH_HOT int32_t shimmer_sample(int32_t input)
+/* ---- CLOUD GRAINS: a granular cloud in the spirit of hardware loopers.
+ * The sends are recorded (u-law, 11 kHz, 0.56 s) and up to four overlapping
+ * grains of 60-180 ms are played back from random places with smooth windows
+ * and random pan. Turning GRAINS up makes them denser and brings in octave-up
+ * and reversed grains. The cloud feeds SPACE, and a little reverb feeds back
+ * into the cloud, so it keeps blooming. Integer only, no divides, all in SRAM. */
+enum { GRAIN_BUF = 6144, GRAIN_HALF = 2 * GRAIN_BUF, GRAINS = 4 };
+static uint8_t grain_buf[GRAIN_BUF];
+static unsigned grain_w;                     /* write head in half-samples (22 kHz ticks) */
+static int32_t grain_in, grain_lp, grain_hp, grain_soft[4], grain_out[2], grain_prev[2];
+static uint32_t grain_seed = 0x2545f491U, grain_wait;
+static struct grain { int32_t pos, step, left; uint32_t phase, inc; int32_t gl, gr; } grains[GRAINS];
+static const uint16_t grain_len[8] = {1320, 1600, 1900, 2250, 2650, 3100, 3600, 3970};
+static const uint32_t grain_inc[8] = {1626881U, 1342177U, 1130254U, 954437U, 810364U, 692737U, 596523U, 540924U}; /* 2^31 / len */
+static inline LUSH_HOT uint8_t mu_encode(int32_t x)
 {
-    /* 22 kHz in: ~2 kHz 12 dB low pass, ~180 Hz high pass, then every other sample. */
-    shimmer_lp1 += ((input - shimmer_lp1) * 14500) >> 15;
-    shimmer_lp2 += ((shimmer_lp1 - shimmer_lp2) * 14500) >> 15;
-    shimmer_hp += ((shimmer_lp2 - shimmer_hp) * 1640) >> 15;
-    int32_t x = shimmer_lp2 - shimmer_hp;
-    int32_t up;
-    if ((shimmer_odd ^= 1U)) { shimmer_held = x; up = shimmer_y; } /* linear interpolation, one sample late */
-    else {
-        shimmer_line[shimmer_write] = (int16_t)clamp15((shimmer_held + x) >> 1);
-        unsigned p1 = shimmer_phase, p2 = (shimmer_phase + SHIMMER_WINDOW / 2U) % SHIMMER_WINDOW;
-    unsigned d1 = SHIMMER_WINDOW - p1 + 2U, d2 = SHIMMER_WINDOW - p2 + 2U;
-    int32_t a = shimmer_line[(shimmer_write + SHIMMER_LEN - d1) & (SHIMMER_LEN - 1U)];
-    int32_t b = shimmer_line[(shimmer_write + SHIMMER_LEN - d2) & (SHIMMER_LEN - 1U)];
-    int32_t sn = sine15((uint32_t)p1 << 21);                      /* sin(pi * p1 / W) */
-    int32_t g1 = (sn * sn) >> 15;                                  /* sin^2 grains always sum to one */
-    int32_t y = (a * g1 + b * (32768 - g1)) >> 15;
-    shimmer_write = (shimmer_write + 1U) & (SHIMMER_LEN - 1U);
-    if (++shimmer_phase == SHIMMER_WINDOW) shimmer_phase = 0;
-    shimmer_prev = shimmer_y; shimmer_y = y;
-    up = (shimmer_prev + y) >> 1;
+    unsigned sign = x < 0 ? 0x80U : 0U, m = (unsigned)(x < 0 ? -x : x);
+    if (m > 32635U) m = 32635U;
+    m += 132U;
+    unsigned e = (m >= 256U) + (m >= 512U) + (m >= 1024U) + (m >= 2048U) + (m >= 4096U) + (m >= 8192U) + (m >= 16384U);
+    return (uint8_t)(sign | (e << 4) | ((m >> (e + 3U)) & 15U));
+}
+static inline LUSH_HOT int32_t mu_decode(unsigned b)
+{
+    unsigned e = (b >> 4) & 7U;
+    int32_t t = ((int32_t)(((b & 15U) << 3) + 132U) << e) - 132;
+    return b & 0x80U ? -t : t;
+}
+static inline LUSH_HOT uint32_t grain_random(void)
+{
+    grain_seed = grain_seed * 1664525U + 1013904223U;
+    return grain_seed >> 8;
+}
+static inline LUSH_HOT void grain_spawn(struct grain *g, int32_t amount)
+{
+    uint32_t r = grain_random();
+    unsigned k = r & 7U, len = grain_len[k], kind = (r >> 3) & 127U;
+    g->step = amount > 40 && kind < (unsigned)amount / 3U ? 2               /* octave up */
+            : amount > 64 && kind > 127U - (unsigned)amount / 6U ? -1       /* reversed */
+            : 1;
+    int32_t lo = g->step == 2 ? (int32_t)len + 64 : 64;
+    int32_t hi = g->step == -1 ? GRAIN_HALF - 2 * (int32_t)len - 64 : GRAIN_HALF - 64;
+    int32_t back = lo + (int32_t)((((r >> 10) & 0xffffU) * (uint32_t)(hi - lo)) >> 16);
+    int32_t pos = (int32_t)grain_w - back;
+    g->pos = pos < 0 ? pos + GRAIN_HALF : pos;
+    g->left = (int32_t)len; g->phase = 0; g->inc = grain_inc[k];
+    int32_t pan = 9000 + (int32_t)(grain_random() & 16383U) + (int32_t)(grain_random() & 4095U); /* 9000..29500 */
+    g->gl = 46000 - (pan * 46000 >> 15) + 4000; g->gr = (pan * 46000 >> 15) + 4000;               /* random, never hard */
+    grain_wait = (len * (16U - (unsigned)amount / 10U)) >> 4;            /* 1..~4 grains overlap */
+}
+static inline LUSH_HOT void cloud_sample(int32_t input, int32_t amount, int32_t out[2])
+{
+    grain_hp += ((input - grain_hp) * 1100) >> 15;                       /* ~120 Hz: no mud, no DC loop */
+    grain_lp += ((input - grain_hp - grain_lp) * 20000) >> 15;           /* ~3.4 kHz before 11 kHz storage */
+    if (grain_w & 1U) grain_buf[grain_w >> 1] = mu_encode((grain_in + grain_lp) >> 1);
+    else grain_in = grain_lp;
+    if (grain_wait) --grain_wait;
+    else
+        for (unsigned g = 0; g < GRAINS; ++g)
+            if (!grains[g].left) { grain_spawn(&grains[g], amount); break; }
+    int32_t l = 0, r = 0;
+    for (unsigned g = 0; g < GRAINS; ++g) {
+        struct grain *q = &grains[g];
+        if (!q->left) continue;
+        int32_t p = q->pos;
+        unsigned i = (unsigned)p >> 1;
+        int32_t v = mu_decode(grain_buf[i]);
+        if (p & 1) v = (v + mu_decode(grain_buf[i + 1U == GRAIN_BUF ? 0U : i + 1U])) >> 1;
+        int32_t w = sine15(q->phase);
+        v = (v * ((w * w) >> 15)) >> 15;                                  /* sin^2 window */
+        l += (v * q->gl) >> 15; r += (v * q->gr) >> 15;
+        q->phase += q->inc;
+        p += q->step;
+        q->pos = p >= GRAIN_HALF ? p - GRAIN_HALF : p < 0 ? p + GRAIN_HALF : p;
+        --q->left;
     }
-    /* back at 22 kHz: ~4 kHz 12 dB low pass removes the images of the 11 kHz shifter */
-    shimmer_soft += ((up - shimmer_soft) * 22300) >> 15;
-    shimmer_soft2 += ((shimmer_soft - shimmer_soft2) * 22300) >> 15;
-    return shimmer_soft2;
+    if (++grain_w == GRAIN_HALF) grain_w = 0;
+    /* 12 dB smoothing removes the 11 kHz storage images */
+    grain_soft[0] += ((l - grain_soft[0]) * 22300) >> 15; grain_soft[1] += ((grain_soft[0] - grain_soft[1]) * 22300) >> 15;
+    grain_soft[2] += ((r - grain_soft[2]) * 22300) >> 15; grain_soft[3] += ((grain_soft[2] - grain_soft[3]) * 22300) >> 15;
+    out[0] = grain_soft[1]; out[1] = grain_soft[3];
 }
 static uint32_t rev_lfo;
 static inline LUSH_HOT int32_t tap(const struct line *l, unsigned n)
@@ -1019,8 +1065,6 @@ static inline LUSH_HOT int32_t allpass_mod(struct line *l, uint32_t n_q16, int32
 static inline LUSH_HOT void reverb_sample(int32_t input, int32_t out[2])
 {
     int32_t decay = fx_decay, damp = fx_damp;
-    if (fx_shimmer) /* feed the octave-up tail back in */
-        input += (int32_t)(((int64_t)shimmer_sample((rev_out[0] + rev_out[1]) >> 1) * fx_shimmer) >> 15);
     rev_low += ((input - rev_low) * 1100) >> 15;           /* keep lows out of the tail */
     input -= rev_low;
     rev_bandwidth += ((input - rev_bandwidth) * 26000) >> 15;
@@ -1159,9 +1203,6 @@ void lush_live_note(unsigned track, unsigned note, unsigned velocity)
     live_queue[w & 15U] = track | note << 8 | (velocity > 127 ? 127U : velocity) << 16;
     live_write = (uint8_t)(w + 1U);
 }
-static volatile uint8_t fx_bypass;
-void lush_fx_bypass(unsigned on) { fx_bypass = on != 0; }
-unsigned lush_fx_bypassed(void) { return fx_bypass; }
 LUSH_CODE void lush_render(int32_t *output)
 {
     while (live_read != live_write) {
@@ -1194,13 +1235,6 @@ LUSH_CODE void lush_render(int32_t *output)
             render_voice(&voices[i]); voicing = 1;
         }
     if (!any && !voicing) return; /* effects tails are allowed to stop with the engine */
-    if (fx_bypass) { /* GLO test switch: dry voices only, to measure what the effects cost */
-        for (unsigned j = 0; j < N; ++j) {
-            output[2 * j] += clamp15(bus_dry[2 * j] + bus_chorus[j]) << 8;
-            output[2 * j + 1] += clamp15(bus_dry[2 * j + 1] + bus_chorus[j]) << 8;
-        }
-        return;
-    }
 
     int32_t wet = fx_wet, feedback = fx_feedback;
     /* Dual-tap stereo delay, the classic two-delay worship guitar rig:
@@ -1213,7 +1247,8 @@ LUSH_CODE void lush_render(int32_t *output)
     uint32_t dtime = delay_now, dtime_r = (uint32_t)(((uint64_t)dtime * 4U) / 3U);
     if (dtime_r > ((uint32_t)(DELAY_LEN - 2) << 16)) dtime_r = (uint32_t)(((uint64_t)dtime * 2U) / 3U);
     pre_fx(); /* DIRT and TAPE first, on every bus */
-    const int32_t width = fx_width, chorus_mix = fx_chorus; /* read once per block */
+    const int32_t width = fx_width, chorus_mix = fx_chorus, grains_on = fx_grains; /* read once per block */
+    const int32_t grain_wet = grains_on * 420 > 29500 ? 29500 : grains_on * 420, grain_feedback = grains_on * 170;
     for (unsigned j = 0; j < N; ++j) {
         /* chorus */
         int32_t mono = bus_chorus[j];
@@ -1255,6 +1290,16 @@ LUSH_CODE void lush_render(int32_t *output)
             if (++delay_write == DELAY_LEN) delay_write = 0;
             delay_prev[0] = delay_out[0]; delay_prev[1] = delay_out[1];
             delay_out[0] = echo; delay_out[1] = echo_r;
+            if (grains_on) { /* CLOUD GRAINS: the whole sound (in series, like a pedal), its own
+                              * output and a little reverb go in; the cloud feeds SPACE too */
+                int32_t whole = (bus_dry[2 * j] + bus_dry[2 * j + 1] + bus_dry[2 * j + 2] + bus_dry[2 * j + 3]) >> 2;
+                whole += (bus_chorus[j] + bus_chorus[j + 1]) >> 1;
+                int32_t own = (grain_out[0] + grain_out[1]) >> 1;
+                grain_prev[0] = grain_out[0]; grain_prev[1] = grain_out[1];
+                cloud_sample(whole + in + ((own * grain_feedback) >> 15)
+                             + ((((rev_out[0] + rev_out[1]) >> 1) * grains_on * 60) >> 15), grains_on, grain_out);
+                rsend += (((grain_out[0] + grain_out[1]) >> 1) * grains_on * 100) >> 15;
+            }
             int32_t rin = rsend + ((mix * 6000) >> 15);
             rev_prev[0] = rev_out[0]; rev_prev[1] = rev_out[1];
             reverb_sample(rin, rev_out);
@@ -1266,6 +1311,11 @@ LUSH_CODE void lush_render(int32_t *output)
         int32_t rr = half ? rev_out[1] : (rev_prev[1] + rev_out[1]) >> 1;
         l += ((dl + ((rl * 9) >> 3)) * wet) >> 15;
         r += ((dr + ((rr * 9) >> 3)) * wet) >> 15;
+        if (grains_on) {
+            int32_t gl = half ? grain_out[0] : (grain_prev[0] + grain_out[0]) >> 1;
+            int32_t gr = half ? grain_out[1] : (grain_prev[1] + grain_out[1]) >> 1;
+            l += (gl * grain_wet) >> 15; r += (gr * grain_wet) >> 15;
+        }
         if (width != 32768) { /* CLOUD width, last in the chain */
             int32_t m = (l + r) >> 1, side = (int32_t)(((int64_t)((l - r) >> 1) * width) >> 15);
             l = m + side; r = m - side;

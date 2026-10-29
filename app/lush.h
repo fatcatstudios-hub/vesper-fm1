@@ -45,8 +45,6 @@ const char *lush_patch_name(unsigned patch);
 const char *lush_track_name(unsigned track);
 unsigned lush_track_level(unsigned track);   /* 0..127, live */
 void lush_budget(unsigned voices_allowed);
-void lush_fx_bypass(unsigned on);   /* test switch: skip chorus/delay/reverb */
-unsigned lush_fx_bypassed(void);   /* control task: max overlapping synth voices */
 
 /* VESPER voice editing (control task). Each layer plays an editable copy of
  * its sound; lush_voice_set picks the sound and resets the copy to its defaults. */

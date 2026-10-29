@@ -276,10 +276,9 @@ static unsigned seq_down;
 static uint32_t seq_ms;
 static unsigned arp_down, arp_long;
 static unsigned v_edit, v_filter_env, play_mode, v_global_row;
-static unsigned battery_adc = 900, page_draw_ms; /* smoothed battery ADC; last full page repaint */
+static unsigned battery_adc = 900; /* smoothed battery ADC */
 /* GLO diagnostics for the last page change: ms painting bands, ms deciding what changed, passes, bands. */
-static unsigned diag_draw_ms, diag_flush_ms, diag_polls, diag_bands, page_diag[4];
-static unsigned poll_draw_ms, poll_flush_ms, poll_bands; /* VESPER page state; ARP = play mode */
+/* VESPER page state; ARP = play mode */
 static uint32_t arp_ms;
 static char project_stored[13];
 static int project_stored_result;
@@ -370,8 +369,8 @@ static void read_encoders(const struct fm1_controls *controls, uint32_t now, uns
     for (unsigned i = 0; i < 7; ++i) {
         int direction = (controls->encoders[i] > 0) - (controls->encoders[i] < 0);
         if (!direction) continue;
-        encoder_speed[i] = direction == encoder_direction[i] && now - encoder_time[i] <= 40U
-            ? (uint8_t)clamp(encoder_speed[i] + 1, 1, 4) : 1;
+        encoder_speed[i] = direction == encoder_direction[i] && now - encoder_time[i] <= 90U
+            ? (uint8_t)clamp(encoder_speed[i] + 1, 1, 6) : 1;
         encoder_direction[i] = (int8_t)direction;
         encoder_time[i] = now;
     }
@@ -380,6 +379,23 @@ static void read_encoders(const struct fm1_controls *controls, uint32_t now, uns
 static unsigned web_fine;
 void groove_screen_web_fine(unsigned fine) { web_fine = fine; }
 #endif
+/* VESPER knob feel. turn(): 0..127 values move 2 per click and up to 12 when
+ * spun, so a full sweep is about a turn. turn_fine(): tempo, swing and other
+ * exact values move 1 per click but speed up just as quickly when spun. */
+static int turn_fine(unsigned encoder, int value)
+{
+    int amount = value < 0 ? -value : value;
+    int gain = amount < 2 ? 1 : amount < 3 ? 3 : amount < 5 ? 5 : 8;
+    if (gain < (int)encoder_speed[encoder] * 3 / 2) gain = (int)encoder_speed[encoder] * 3 / 2;
+    return value * gain;
+}
+static int turn(unsigned encoder, int value)
+{
+    int amount = value < 0 ? -value : value;
+    int gain = amount < 2 ? 2 : amount < 3 ? 4 : amount < 5 ? 7 : 12;
+    if (gain < 2 * (int)encoder_speed[encoder]) gain = 2 * (int)encoder_speed[encoder];
+    return value * gain;
+}
 static int fm_encoder_delta(unsigned encoder, int16_t value)
 {
 #ifdef FM1_HOST_TEST
@@ -1555,7 +1571,7 @@ static __attribute__((noinline)) const char *vesper_label(unsigned id)
         "F ATTACK", "F DECAY", "F SUST", "F REL", "RATE", "FILTER", "AUTOPAN", "DRIFT",
         "WIDTH", "BRIGHT", "RING", "VEL", "GAIN", "OCTAVE"};
     static const char *const fx[16] = {"DECAY", "TIME", "ECHO", "REVERB",
-        "SHIMMER", "TONE", "WIDTH", "CHORUS", "HI PASS", "LO PASS", "SATURATE", "AGE",
+        "GRAINS", "TONE", "WIDTH", "CHORUS", "HI PASS", "LO PASS", "SATURATE", "AGE",
         "DRIVE", "BITS", "RATE", "MIX"};
     if (id >= VX_SPACE && id < VX_MASTER + 12) {
         if (id == VX_SPACE + 1 && groove_delay_synced(frame_effects[1])) return "DIVISION";
@@ -1627,10 +1643,9 @@ static unsigned vesper_bar(unsigned id)
 }
 /* GLO: global settings. SELECT picks a row, K1 changes it. */
 enum { G_CLOCK, G_CLOCK_IN, G_CLOCK_OUT, G_MIDI_OUT, G_KEYS_OUT, G_LOCAL, G_THRU_IN, G_THRU_OUT,
-       G_BLUETOOTH, G_SWING, G_CLICK, G_BATTERY, G_PAGE_DRAW, G_PAINT, G_DECIDE, G_PASSES, G_FX_TEST, G_VERSION, G_ROWS };
+       G_BLUETOOTH, G_SWING, G_CLICK, G_BATTERY, G_VERSION, G_ROWS };
 static const char *const global_names[G_ROWS] = {"CLOCK", "CLOCK IN", "CLOCK OUT", "MIDI OUT", "KEYS TO MIDI",
-    "LOCAL SOUND", "THRU FROM", "THRU TO", "BLUETOOTH", "SWING", "CLICK", "BATTERY", "PAGE DRAW",
-    "  PAINTING", "  DECIDING", "  PASSES/BANDS", "TEST: SOUND FX", "VERSION"};
+    "LOCAL SOUND", "THRU FROM", "THRU TO", "BLUETOOTH", "SWING", "CLICK", "BATTERY", "VERSION"};
 static __attribute__((noinline)) void global_value(unsigned row, char out[20])
 {
     static const char *const ports[] = {"OFF", "DIN", "USB", "DIN+USB", "BLE", "DIN+BLE", "USB+BLE", "ALL"};
@@ -1648,11 +1663,6 @@ static __attribute__((noinline)) void global_value(unsigned row, char out[20])
     case G_SWING: decimal(out, (int)groove_sequence_setting(0), 1); strcat(out, "%"); break;
     case G_CLICK: strcpy(out, clicks[groove_sequence_setting(1) % 3U]); break;
     case G_BATTERY: decimal(out, (int)battery_adc, 1); strcat(out, " ADC"); break;
-    case G_PAGE_DRAW: decimal(out, (int)page_draw_ms, 1); strcat(out, " MS"); break;
-    case G_PAINT: decimal(out, (int)page_diag[0], 1); strcat(out, " MS"); break;
-    case G_DECIDE: decimal(out, (int)page_diag[1], 1); strcat(out, " MS"); break;
-    case G_PASSES: { char b[6]; decimal(out, (int)page_diag[2], 1); strcat(out, "/"); decimal(b, (int)page_diag[3], 1); strcat(out, b); } break;
-    case G_FX_TEST: strcpy(out, lush_fx_bypassed() ? "OFF" : "ON"); break;
     case G_VERSION: strcpy(out, SHOWN_VERSION); break;
     default: strcpy(out, v ? "ON" : "OFF");
     }
@@ -1669,7 +1679,6 @@ static void global_edit(unsigned row, int delta)
         flags = delta > 0 ? flags | GROOVE_RADIO_ON : flags & ~(unsigned)GROOVE_RADIO_ON;
         if (flags != groove_settings_radio_flags()) (void)groove_settings_radio(flags, groove_settings_role_value());
     } else if (row == G_SWING || row == G_CLICK) groove_sequence_setting_edit(row == G_SWING ? 0 : 1, delta);
-    else if (row == G_FX_TEST) lush_fx_bypass(delta < 0);
 }
 static __attribute__((noinline)) void global_draw(void)
 {
@@ -1790,7 +1799,8 @@ static void vesper_controls(const struct fm1_controls *controls)
 {
     if (page == V_GLOBAL) {
         v_global_row = (unsigned)clamp((int)v_global_row + controls->encoders[0], 0, G_ROWS - 1);
-        global_edit(v_global_row, controls->encoders[2]);
+        global_edit(v_global_row, v_global_row == G_SWING || v_global_row == G_CLICK
+                                  ? turn_fine(2, controls->encoders[2]) : controls->encoders[2]);
         return;
     }
     if (controls->encoders[1]) select_track(controls->encoders[1]);
@@ -1805,16 +1815,12 @@ static void vesper_controls(const struct fm1_controls *controls)
     for (unsigned c = 0; c < 4; ++c) {
         int delta = controls->encoders[2 + c];
         if (!delta) continue;
-        if (ids[c] != VP_SOUND && ids[c] != LP_OCTAVE && ids[c] != LP_UNISON && ids[c] != LP_CHORUS && ids[c] != LP_RATE) {
-            /* Wide ranges move faster: two steps per click, more when spun. */
-            int amount = delta < 0 ? -delta : delta;
-            int gain = amount < 2 ? 2 : amount < 4 ? 4 : 8;
-            if (gain < 2 * (int)encoder_speed[2 + c]) gain = 2 * (int)encoder_speed[2 + c];
-            delta *= gain;
-        }
+        if (ids[c] == VX_SPACE + 1) delta = turn_fine(2 + c, delta); /* delay time */
+        else if (ids[c] != VP_SOUND && ids[c] != LP_OCTAVE && ids[c] != LP_UNISON && ids[c] != LP_CHORUS && ids[c] != LP_RATE)
+            delta = turn(2 + c, delta); /* wide ranges: two per click, up to twelve spun */
         if (ids[c] >= VX_SPACE && ids[c] < VX_MASTER) {
             /* stock shared FX: TIME steps divisions or ms one at a time */
-            groove_effects_edit(ids[c] - VX_SPACE, ids[c] == VX_SPACE + 1 ? controls->encoders[2 + c] : delta / 2);
+            groove_effects_edit(ids[c] - VX_SPACE, ids[c] == VX_SPACE + 1 && groove_delay_synced(frame_effects[1]) ? controls->encoders[2 + c] : delta);
             groove_project_touch();
             continue;
         }
@@ -2620,7 +2626,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         select_track(controls->encoders[0]);
         for (unsigned i = 0; i < 4; ++i)
             if (controls->encoders[2 + i])
-                groove_control_edit((track & ~3U) + i, 0, controls->encoders[2 + i], 0);
+                groove_control_edit((track & ~3U) + i, 0, turn(2 + i, controls->encoders[2 + i]), 0);
         for (unsigned i = 0; i < 16; ++i)
             if ((key_down & ~blocked_keys) & (1U << white_keys[i]))
                 groove_mix_toggle(i & 7U, i >= 8);
@@ -2843,8 +2849,8 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                         worship_chord_edit(controls->encoders[2], 0) > 0) {
                         notice = worship_chord_label(); notice_until = now + 1500U;
                     }
-                    if (controls->encoders[4]) groove_control_edit(track, 0, controls->encoders[4], 0);
-                    if (controls->encoders[5]) groove_tempo_edit(controls->encoders[5]);
+                    if (controls->encoders[4]) groove_control_edit(track, 0, turn(4, controls->encoders[4]), 0);
+                    if (controls->encoders[5]) groove_tempo_edit(turn_fine(5, controls->encoders[5]));
                     goto controls_done;
                 }
 #if !WORSHIP_SLIM
@@ -2877,12 +2883,12 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                     if (next != seq_page) { seq_page = next; cache->shown_page = ~0U; }
                     if (seq_page == 1 || seq_page == 3) step_adjust(seq_page == 3, controls->encoders, now);
                     else if (seq_page == 2) {
-                        for (unsigned i = 0; i < 3; ++i) groove_sequence_setting_edit(i, controls->encoders[2 + i]);
+                        for (unsigned i = 0; i < 3; ++i) groove_sequence_setting_edit(i, turn_fine(2 + i, controls->encoders[2 + i]));
                         sequence_length_adjust(controls->encoders[5]);
                     } else if (seq_page == 4) {
                         if (controls->encoders[2]) groove_settings_clock(controls->encoders[2] > 0
                             ? GROOVE_CLOCK_MIDI : GROOVE_CLOCK_INTERNAL);
-                        groove_tempo_edit(controls->encoders[3]);
+                        groove_tempo_edit(turn_fine(3, controls->encoders[3]));
                         sequence_length_adjust(controls->encoders[4]);
                         groove_settings_midi(track,6,controls->encoders[5]);
                         if (controls->encoders[3] && groove_clock_mode()) {
@@ -3068,9 +3074,9 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                         }
                     }
                     if (controls->encoders[2])
-                        groove_control_edit(track, 0, controls->encoders[2], 0);
+                        groove_control_edit(track, 0, turn(2, controls->encoders[2]), 0);
                     if (controls->encoders[5]) {
-                        groove_tempo_edit(controls->encoders[5]);
+                        groove_tempo_edit(turn_fine(5, controls->encoders[5]));
                         if (groove_clock_mode() == GROOVE_CLOCK_MIDI) {
                             notice = "EXTERNAL CLOCK - USE INT FOR BPM";
                             notice_until = now + 2000U;
@@ -3311,26 +3317,11 @@ void groove_screen_control(void)
     static uint32_t touched;
     if (input_changed) touched = now;
     unsigned frame_gap = now - touched < 1500U ? 33U : 66U;
-    poll_draw_ms = 0;
     if (now - frame_ms >= frame_gap || page != old_page || input_changed || saved_cache.shown_page == ~0U) {
         frame_ms = now;
-        uint32_t t0 = fm1_millis();
         draw(&ble);
-        poll_draw_ms = fm1_millis() - t0;
-        diag_draw_ms += poll_draw_ms;
     }
-    {
-        unsigned before = 0, after = 0;
-        for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) ++before;
-        uint32_t t0 = fm1_millis();
-        paint_flush();
-        poll_flush_ms = fm1_millis() - t0;
-        diag_flush_ms += poll_flush_ms;
-        for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) ++after;
-        poll_bands = before > after ? before - after : 0;
-        if (before) ++diag_polls;
-        diag_bands += poll_bands;
-    }
+    paint_flush();
     if (boot_waiting) {
         /* The full-screen backdrop paints over several polls; start the boot
          * animation clock only once every band is on screen (3 s safety). */
@@ -3342,19 +3333,6 @@ void groove_screen_control(void)
         }
     }
     battery_adc = (battery_adc * 15U + controls.battery + 8U) / 16U;
-    {   /* GLO > PAGE DRAW: how long the last full page change took to reach the glass. */
-        static unsigned timing, shown = ~0U; static uint32_t since;
-        unsigned clean = 1;
-        for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) clean = 0;
-        if (saved_cache.shown_page != shown) {
-            shown = saved_cache.shown_page; since = now; timing = 1;
-            /* this pass already painted part of the new page: count it */
-            diag_draw_ms = poll_draw_ms; diag_flush_ms = poll_flush_ms; diag_polls = 1; diag_bands = poll_bands;
-        } else if (timing && clean) {
-            page_draw_ms = now - since; timing = 0;
-            page_diag[0] = diag_flush_ms; page_diag[1] = diag_draw_ms; page_diag[2] = diag_polls; page_diag[3] = diag_bands;
-        }
-    }
 #if VESPER_FAST_PAGES
     /* Faster page changes: while bands are still waiting, ask for the next
      * control pass now instead of at the next tick. Never during the boot
