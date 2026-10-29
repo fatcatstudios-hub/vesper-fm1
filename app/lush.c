@@ -70,32 +70,33 @@ struct patch {
     uint8_t modal;                  /* ks 3: 1 handpan, 2 kalimba */
     uint8_t formant;                /* 1 ooh->aah, 2 ee->oh: vowel filters replace the low-pass */
     uint8_t reverse;                /* sample patches: swell length in beats, played backwards */
+    int8_t pos;                     /* EDIT MIX PAN: -64 left .. 0 centre .. +63 right (0.8.8) */
 };
 /* Warm voicing: soft 5-10 ms attacks (no clicks), darker cutoffs, little
  * resonance, more saturation, analog drift on every oscillator voice. */
 static FM1_AUDIO_DATA const struct patch patches[LUSH_PATCHES] = {
     /*                    ks saw pul sin noi uni det drf pw oct cut key env res drv  fenv              aenv               vel gain ch spr br dec st */
-    [LUSH_GLASS_PLUCK]  = {0,  96, 44,  0,  0, 2,  8, 5, 64, 0, 50,100, 36, 26, 44, {18,72,10,76},   {24,88,0,80},      90, 62, 1, 70,  0,  0, 0, 0, 0, 10, 4, 40, 0,0,0},
-    [LUSH_WARM_BASS]    = {0,  86,  0, 90,  0, 1,  0, 3,  0,-1, 44,100, 22, 14, 40, {14,70,30,64},   {22,80,124,68},    72, 64, 0,  0,  0,  0, 0, 0, 0, 0,0, 0, 0,0,0},
-    [LUSH_SUB]          = {0,  22,  0,127,  0, 1,  0, 2,  0, 0, 48,100,  4,  0, 10, {60,80,64,80},   {70,90,127,94},    40, 70, 0,  0,  0,  0, 0, 0, 0, 0,0, 0, 0,0,0},
-    [LUSH_DETUNE_PLUCK] = {0, 104, 30,  0,  0, 3, 12, 7, 60, 0, 52,104, 34, 22, 48, {20,74,12,76},   {24,90,0,82},      92, 64, 0,  0,  0,  0, 1, 0, 0, 12, 5, 0, 0,0,0},
-    [LUSH_SUPERSAW]     = {0, 112,  0, 16,  0, 3, 15, 8,  0, 0, 64, 92, 24, 14, 46, {20,82,40,82},   {26,86,56,84},     80, 64, 0,  0,  0,  0, 1, 0, 0, 14, 6, 0, 0,0,0},
-    [LUSH_JUNO_ARP]     = {0,  40,110,  0,  0, 2, 9, 7, 92, 0, 58,100, 32, 30, 44, {12,76,14,76},   {24,86,30,78},     88, 58, 1, 64,  0,  0, 0, 0, 0, 12, 2, 30, 0,0,0},
+    [LUSH_GLASS_PLUCK]  = {0,  96, 44,  0,  0, 2,  8, 5, 64, 0, 50,100, 36, 26, 44, {18,72,10,76},   {24,88,0,80},      90, 62, 1, 70,  0,  0, 0, 0, 0, 10, 4, 40, 0,0,0,0},
+    [LUSH_WARM_BASS]    = {0,  86,  0, 90,  0, 1,  0, 3,  0,-1, 44,100, 22, 14, 40, {14,70,30,64},   {22,80,124,68},    72, 64, 0,  0,  0,  0, 0, 0, 0, 0,0, 0, 0,0,0,0},
+    [LUSH_SUB]          = {0,  22,  0,127,  0, 1,  0, 2,  0, 0, 48,100,  4,  0, 10, {60,80,64,80},   {70,90,127,94},    40, 70, 0,  0,  0,  0, 0, 0, 0, 0,0, 0, 0,0,0,0},
+    [LUSH_DETUNE_PLUCK] = {0, 104, 30,  0,  0, 3, 12, 7, 60, 0, 52,104, 34, 22, 48, {20,74,12,76},   {24,90,0,82},      92, 64, 0,  0,  0,  0, 1, 0, 0, 12, 5, 0, 0,0,0,0},
+    [LUSH_SUPERSAW]     = {0, 112,  0, 16,  0, 3, 15, 8,  0, 0, 64, 92, 24, 14, 46, {20,82,40,82},   {26,86,56,84},     80, 64, 0,  0,  0,  0, 1, 0, 0, 14, 6, 0, 0,0,0,0},
+    [LUSH_JUNO_ARP]     = {0,  40,110,  0,  0, 2, 9, 7, 92, 0, 58,100, 32, 30, 44, {12,76,14,76},   {24,86,30,78},     88, 58, 1, 64,  0,  0, 0, 0, 0, 12, 2, 30, 0,0,0,0},
     /* Sampled: transient kept (fast attack), gentle velocity-tracked low-pass. sine_octave = transpose. */
-    [LUSH_PIANO]        = {2,   0,  0,  0,  0, 1,  0, 0,  0, 0,108, 64,  0,  0,  8, {0,0,127,0},     {4,100,127,84},    72, 124, 0, 60,  0,  0, 0, 0, 4, 6, 6, 50, 0,0,0},
-    [LUSH_MARIMBA]      = {2,   0,  0,  0,  0, 1,  0, 0,  0, 0,112, 64,  0,  0,  6, {0,0,127,0},     {4,100,127,78},    70, 122, 0, 70,  0,  0, 0, 4, 3, 8, 5, 60, 0,0,0},
-    [LUSH_GLOCK]        = {2,   0,  0,  0,  0, 1,  0, 0,  0, 1,118, 64,  0,  0,  0, {0,0,127,0},     {4,100,127,92},    64, 92, 1, 90,  0,  0, 0, 7, 1, 0, 0, 80, 0,0,0},
+    [LUSH_PIANO]        = {2,   0,  0,  0,  0, 1,  0, 0,  0, 0,108, 64,  0,  0,  8, {0,0,127,0},     {4,100,127,84},    72, 124, 0, 60,  0,  0, 0, 0, 4, 6, 6, 50, 0,0,0,0},
+    [LUSH_MARIMBA]      = {2,   0,  0,  0,  0, 1,  0, 0,  0, 0,112, 64,  0,  0,  6, {0,0,127,0},     {4,100,127,78},    70, 122, 0, 70,  0,  0, 0, 4, 3, 8, 5, 60, 0,0,0,0},
+    [LUSH_GLOCK]        = {2,   0,  0,  0,  0, 1,  0, 0,  0, 1,118, 64,  0,  0,  0, {0,0,127,0},     {4,100,127,92},    64, 92, 1, 90,  0,  0, 0, 7, 1, 0, 0, 80, 0,0,0,0},
     /* Omnisphere-style hybrids: the air halo is the point. */
-    [LUSH_HALO_PLUCK]   = {0,  70, 40,  0,  0, 2, 10, 6, 70, 0, 48, 96, 40, 30, 40, {16,74,8,78},    {20,82,0,80},      86, 38, 1, 70,  0,  0, 0, 0, 0, 10,6, 70, 0,0,0},
+    [LUSH_HALO_PLUCK]   = {0,  70, 40,  0,  0, 2, 10, 6, 70, 0, 48, 96, 40, 30, 40, {16,74,8,78},    {20,82,0,80},      86, 38, 1, 70,  0,  0, 0, 0, 0, 10,6, 70, 0,0,0,0},
     /* Beyond GM. ks 3 = modal (tuned partials), formant voices use the oscillator path. */
-    [LUSH_HANDPAN]      = {3,   0,  0,  0,  0, 1,  0, 0,  0, 0,  0,  0,  0,  0,  0, {0,0,127,0},     {14,100,127,86},   70,54, 0, 70,  0,  0, 0, 0, 0, 0,0, 40, 1,0,0},
-    [LUSH_KALIMBA]      = {3,   0,  0,  0,  0, 1,  0, 0,  0, 0,  0,  0,  0,  0,  0, {0,0,127,0},     {4,100,127,80},    76,62, 0, 80,  0,  0, 0, 0, 0, 0,0, 50, 2,0,0},
-    [LUSH_VOX_OOH]      = {0,  96,  0,  0,  0, 2,  6, 3,  0, 0,  0,  0,  0,  0,  0, {78,96,100,84},  {40,90,110,84},    60,100, 1, 80,  0,  0, 0, 0, 0, 0,0, 40, 0,1,0},
-    [LUSH_VOX_EE]       = {0,  96,  0,  0,  0, 2,  6, 3,  0, 0,  0,  0,  0,  0,  0, {80,96,100,84},  {40,90,110,84},    60,100, 1, 80,  0,  0, 0, 0, 0, 0,0, 40, 0,2,0},
-    [LUSH_MUTED_GTR]    = {1,   0,  0,  0,  0, 1,  0, 2,  0, 0, 82, 64,  0, 40, 30, {0,0,127,0},     {6,100,0,64},      90,127, 0, 50, 76, 96, 0, 0, 0, 0,0, 30, 0,0,0},
-    [LUSH_REV_PIANO]    = {2,   0,  0,  0,  0, 1,  0, 0,  0, 0,108, 64,  0,  0,  0, {0,0,127,0},     {40,100,127,70},   60,120, 0, 70,  0,  0, 0, 0, 4, 0,0, 60, 0,0,2},
-    [LUSH_REV_GLOCK]    = {2,   0,  0,  0,  0, 1,  0, 0,  0, 1,118, 64,  0,  0,  0, {0,0,127,0},     {40,100,127,70},   60,100, 1, 80,  0,  0, 0, 7, 1, 0,0, 60, 0,0,2},
-    [LUSH_DETUNE_BASS]  = {0, 104,  0, 70,  0, 2, 11, 4,  0,-1, 42,100, 26, 20, 46, {14,68,20,62},   {22,76,90,64},     84, 88, 0,  0,  0,  0, 0, 0, 0, 0,0, 0, 0,0,0},
+    [LUSH_HANDPAN]      = {3,   0,  0,  0,  0, 1,  0, 0,  0, 0,  0,  0,  0,  0,  0, {0,0,127,0},     {14,100,127,86},   70,54, 0, 70,  0,  0, 0, 0, 0, 0,0, 40, 1,0,0,0},
+    [LUSH_KALIMBA]      = {3,   0,  0,  0,  0, 1,  0, 0,  0, 0,  0,  0,  0,  0,  0, {0,0,127,0},     {4,100,127,80},    76,62, 0, 80,  0,  0, 0, 0, 0, 0,0, 50, 2,0,0,0},
+    [LUSH_VOX_OOH]      = {0,  96,  0,  0,  0, 2,  6, 3,  0, 0,  0,  0,  0,  0,  0, {78,96,100,84},  {40,90,110,84},    60,100, 1, 80,  0,  0, 0, 0, 0, 0,0, 40, 0,1,0,0},
+    [LUSH_VOX_EE]       = {0,  96,  0,  0,  0, 2,  6, 3,  0, 0,  0,  0,  0,  0,  0, {80,96,100,84},  {40,90,110,84},    60,100, 1, 80,  0,  0, 0, 0, 0, 0,0, 40, 0,2,0,0},
+    [LUSH_MUTED_GTR]    = {1,   0,  0,  0,  0, 1,  0, 2,  0, 0, 82, 64,  0, 40, 30, {0,0,127,0},     {6,100,0,64},      90,127, 0, 50, 76, 96, 0, 0, 0, 0,0, 30, 0,0,0,0},
+    [LUSH_REV_PIANO]    = {2,   0,  0,  0,  0, 1,  0, 0,  0, 0,108, 64,  0,  0,  0, {0,0,127,0},     {40,100,127,70},   60,120, 0, 70,  0,  0, 0, 0, 4, 0,0, 60, 0,0,2,0},
+    [LUSH_REV_GLOCK]    = {2,   0,  0,  0,  0, 1,  0, 0,  0, 1,118, 64,  0,  0,  0, {0,0,127,0},     {40,100,127,70},   60,100, 1, 80,  0,  0, 0, 7, 1, 0,0, 60, 0,0,2,0},
+    [LUSH_DETUNE_BASS]  = {0, 104,  0, 70,  0, 2, 11, 4,  0,-1, 42,100, 26, 20, 46, {14,68,20,62},   {22,76,90,64},     84, 88, 0,  0,  0,  0, 0, 0, 0, 0,0, 0, 0,0,0,0},
 };
 static const char *const names[LUSH_PATCHES] = {
     "", "GLASS PLUCK", "WARM BASS", "SUB", "DETUNE PLUCK", "SUPERSAW", "JUNO ARP", "DETUNE BASS",
@@ -189,7 +190,7 @@ static const struct { uint8_t at; int8_t min, max; uint8_t kinds; } params[LUSH_
     [LP_PAN] = {PO(pan_move), 0, 127, 15},     [LP_DRIFT] = {PO(drift), 0, 20, 3},
     [LP_SPREAD] = {PO(spread), 0, 127, 15},    [LP_BRIGHT] = {PO(bright), 0, 127, 2},
     [LP_DECAY] = {PO(decay), 0, 127, 2},       [LP_VELOCITY] = {PO(velocity), 0, 127, 15},
-    [LP_GAIN] = {PO(gain), 0, 127, 15},
+    [LP_GAIN] = {PO(gain), 0, 127, 15},        [LP_POS] = {PO(pos), -64, 63, 15},
 };
 int lush_param_applies(unsigned track, unsigned id)
 {
@@ -220,17 +221,18 @@ __attribute__((minsize)) int lush_param_edit(unsigned track, unsigned id, int de
 unsigned lush_voice_export(unsigned track, uint8_t *out)
 {
     if (track >= TRACKS || layer[track].patch == LUSH_NONE) return 0;
-    out[0] = 'V'; out[1] = 1; out[2] = layer[track].patch; out[3] = (uint8_t)voice_octave[track];
+    out[0] = 'V'; out[1] = 2; out[2] = layer[track].patch; out[3] = (uint8_t)voice_octave[track];
     memcpy(out + 4, &voice_patch[track], sizeof(struct patch));
     return LUSH_VOICE_BYTES;
 }
 __attribute__((minsize)) int lush_voice_import(unsigned track, const uint8_t *in)
 {
-    if (track >= TRACKS || in[0] != 'V' || in[1] != 1 || in[2] == LUSH_NONE || in[2] >= LUSH_PATCHES) return -1;
+    if (track >= TRACKS || in[0] != 'V' || (in[1] != 1 && in[1] != 2) || in[2] == LUSH_NONE || in[2] >= LUSH_PATCHES) return -1;
     lush_voice_set(track, in[2]);
     layer[track].patch = LUSH_NONE;
     struct patch edited, *v = &voice_patch[track];
     memcpy(&edited, in + 4, sizeof edited);
+    if (in[1] == 1) edited.pos = 0; /* 0.7 blobs had no PAN byte: centre */
     /* Structural fields always come from the sound itself. */
     edited.ks = v->ks; edited.slot = v->slot; edited.slots = v->slots; edited.modal = v->modal;
     edited.formant = v->formant; edited.reverse = v->reverse; edited.stereo = v->stereo;
@@ -757,11 +759,16 @@ static LUSH_CODE void render_voice(struct voice *v)
     int32_t gain = (int32_t)(((int64_t)layer[v->track].gain * v->velocity) >> 15);
     gain = (gain * p->gain) >> 7;
     int32_t send_r = layer[v->track].reverb, send_d = layer[v->track].delay;
-    int32_t pan = v->pan;
+    int32_t pan = v->pan + p->pos;
     if (p->pan_move) /* slow 2-bar drift across the field, each voice on its own phase */
         pan += (sine15((beat_phase << 1) + (uint32_t)v->age * 0x28000000U) * p->pan_move) >> 16;
     pan = pan < 0 ? 0 : pan > 128 ? 128 : pan;
     int32_t left = (int32_t)(128 - pan) * 256, right = (int32_t)pan * 256;
+    /* PAN on a chorused voice pulls it out of the (centred) chorus toward its
+     * side; on a stereo voice it works as balance. */
+    int32_t off = p->pos < 0 ? -p->pos : p->pos;
+    int32_t chorus_keep = (64 - off) * 512;
+    int32_t bal_l = p->pos > 0 ? (64 - p->pos) * 512 : 32768, bal_r = p->pos < 0 ? (64 + p->pos) * 512 : 32768;
     unsigned index = (unsigned)(v - voices);
 
     int32_t saw_level = p->stereo ? (p->unison >= 3 ? p->saw * 172 : p->saw * 258)
@@ -891,11 +898,14 @@ static LUSH_CODE void render_voice(struct voice *v)
             if (p->stereo) {
                 int32_t outr = (int32_t)(((int64_t)s_right * amp) >> 15);
                 outr = (int32_t)(((int64_t)outr * gain) >> 15);
-                bus_dry[2 * j] += out;
-                bus_dry[2 * j + 1] += outr;
+                bus_dry[2 * j] += (out * bal_l) >> 15;
+                bus_dry[2 * j + 1] += (outr * bal_r) >> 15;
                 out = (out + outr) >> 1; /* sends are mono */
-            } else if (p->chorus) bus_chorus[j] += out;
-            else {
+            } else if (p->chorus) {
+                int32_t kept = (out * chorus_keep) >> 15, moved = out - kept;
+                bus_chorus[j] += kept;
+                if (moved) { bus_dry[2 * j] += (moved * left) >> 15; bus_dry[2 * j + 1] += (moved * right) >> 15; }
+            } else {
                 bus_dry[2 * j] += (out * left) >> 15;
                 bus_dry[2 * j + 1] += (out * right) >> 15;
             }

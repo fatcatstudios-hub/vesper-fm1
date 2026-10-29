@@ -1394,6 +1394,7 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         sig = sig * 33U + groove_sequence_count_in();
         sig = sig * 33U + frame_views[track].volume;
         if (notice) sig = signature(sig, notice, (unsigned)strlen(notice));
+#if !WORSHIP_SLIM
         if (visible == FM_QUICK) {
             sig = signature(sig, frame_patch, 156);
             sig = sig * 33U + frame_views[track].program;
@@ -1403,11 +1404,13 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
             sig = sig * 33U + track + (groove_arp_enabled(track) << 8) + (arp_page << 9);
             for (unsigned i = 0; i < 6; ++i) sig = sig * 33U + groove_arp_setting(track, i);
         }
+#endif
         if (cache->middle_cache == sig) return;
         cache->middle_cache = sig;
     }
     paint_fill(0, 32, 240, 208, BACK);
     memset(cache->foot_cache, 0xff, sizeof cache->foot_cache);
+#if !WORSHIP_SLIM /* VESPER reaches only the ACTIONS menu here */
     if (visible == SOURCE) {
         text(8, 42, "SELECT SOUND SOURCE", 1, TEXT, BACK);
         text(8, 78, source_names[source_preview], 2, ACCENT, BACK);
@@ -1416,7 +1419,9 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         text(8, 165, "DRUM / PITCH CHANGE CLEARS STEPS", 1, AMBER, BACK);
         text(8, 196, source_result ? "NOT ENOUGH MEMORY - RETRY" : "UNDO IN HOLD SEQ MENU", 1, source_result ? AMBER : DIM, BACK);
         text(8, 231, "ALGO / K2 CHOOSE  SAVE APPLY", 1, DIM, BACK);
-    } else if (visible == ACTIONS) {
+    } else
+#endif
+    if (visible == ACTIONS) {
         if (action_confirm) text(8, 38, "REPLACE PATTERN DATA?", 1, AMBER, BACK);
         else {
             text(8, 38, "T", 1, DIM, BACK); number(16, 38, track + 1, 1, 1, TEXT, BACK);
@@ -1434,7 +1439,9 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         }
         text(8, 213, notice ? notice : "SELECT ACTION  SAVE EXECUTE", 1, TEXT, BACK);
         text(8, 231, action_confirm ? "SAVE CONFIRM   HOME CANCEL" : "PRESETS STEP  OCT PAGE  SAVE DO", 1, DIM, BACK);
-    } else if (visible == ARP_EDIT) {
+    }
+#if !WORSHIP_SLIM
+    else if (visible == ARP_EDIT) {
         text(8, 40, "ARPEGGIATOR", 2, ACCENT, BACK);
         text(184, 40, "T", 2, colors[track], BACK);
         number(198, 40, track + 1, 1, 2, colors[track], BACK);
@@ -1477,6 +1484,7 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         for (unsigned i = 0; i < 4; ++i) { char value[12]; decimal(value, values[i], 1); knob(i, labels[i], value, colors[i]); }
         text(8, 231, "EDIT BACK  HOLD EDIT MORE", 1, DIM, BACK);
     }
+#endif
 }
 /* Boot: four prism rings bloom outward dot by dot, a bright comet circles
  * each ring at its own speed (alternate rings counter-rotate), the centre
@@ -1535,7 +1543,7 @@ static void select_track(int delta);
  * EDIT steps SOUND / TONE / OSC / VOICE, ENV shows amp or filter ADSR
  * (SELECT switches), LFO the tempo-locked motion. K1-K4 edit what the footer
  * shows; values belong to the focused voice and are saved with the project. */
-enum { VP_SOUND = 100, VP_LEVEL, VP_NONE, VX_SPACE = 110, VX_MASTER = 114 }; /* VX: FX pages */
+enum { VP_SOUND = 100, VP_LEVEL, VP_NONE, VP_VERB, VP_ECHO, VX_SPACE = 110, VX_MASTER = 114 }; /* VX: FX pages */
 static __attribute__((noinline)) const uint8_t *vesper_params(unsigned visible)
 {
     static const uint8_t pages[][4] = {
@@ -1547,6 +1555,7 @@ static __attribute__((noinline)) const uint8_t *vesper_params(unsigned visible)
         {LP_CUTOFF, LP_VELOCITY, LP_GAIN, LP_CHORUS},  /* EDIT 2 for samples and modal */
         {LP_A, LP_D, LP_S, LP_R}, {LP_FA, LP_FD, LP_FS, LP_FR},
         {LP_RATE, LP_MOTION, LP_PAN, LP_DRIFT},
+        {VP_LEVEL, LP_POS, VP_VERB, VP_ECHO},          /* EDIT 5 MIX */
     };
     static const uint8_t fx[4][4] = { /* the chain: DIRT -> TAPE -> CLOUD -> SPACE */
         {VX_MASTER + 8, VX_MASTER + 9, VX_MASTER + 10, VX_MASTER + 11},
@@ -1561,7 +1570,7 @@ static __attribute__((noinline)) const uint8_t *vesper_params(unsigned visible)
         unsigned ks = lush_param_applies(track, LP_BRIGHT) ? 1U : lush_param_applies(track, LP_SAW) ? 0U : 2U;
         return pages[ks ? 3U + ks : 1U];
     }
-    return pages[v_edit];
+    return pages[v_edit == 4 ? 9U : v_edit];
 }
 static __attribute__((noinline)) const char *vesper_label(unsigned id)
 {
@@ -1569,7 +1578,7 @@ static __attribute__((noinline)) const char *vesper_label(unsigned id)
         "CUTOFF", "RESO", "ENV AMT", "DRIVE", "SAW", "PULSE", "SINE", "NOISE",
         "UNISON", "DETUNE", "PW", "CHORUS", "ATTACK", "DECAY", "SUSTAIN", "RELEASE",
         "F ATTACK", "F DECAY", "F SUST", "F REL", "RATE", "FILTER", "AUTOPAN", "DRIFT",
-        "WIDTH", "BRIGHT", "RING", "VEL", "GAIN", "OCTAVE"};
+        "WIDTH", "BRIGHT", "RING", "VEL", "GAIN", "PAN", "OCTAVE"};
     static const char *const fx[16] = {"DECAY", "TIME", "ECHO", "REVERB",
         "GRAINS", "SHIMMER", "WIDTH", "CHORUS", "HI PASS", "LO PASS", "LEVEL", "OUTPUT",
         "DRIVE", "BITS", "RATE", "MIX"};
@@ -1577,7 +1586,8 @@ static __attribute__((noinline)) const char *vesper_label(unsigned id)
         if (id == VX_SPACE + 1 && groove_delay_synced(frame_effects[1])) return "DIVISION";
         return fx[id - VX_SPACE];
     }
-    return id == VP_SOUND ? "SOUND" : id == VP_LEVEL ? "LEVEL" : id <= LUSH_PARAMS ? names[id] : "";
+    return id == VP_SOUND ? "SOUND" : id == VP_LEVEL ? "LEVEL" : id == VP_VERB ? "REVERB" : id == VP_ECHO ? "ECHO"
+         : id <= LUSH_PARAMS ? names[id] : "";
 }
 static __attribute__((noinline)) void vesper_value(unsigned id, char out[12])
 {
@@ -1590,6 +1600,11 @@ static __attribute__((noinline)) void vesper_value(unsigned id, char out[12])
         return;
     }
     if (id == VP_LEVEL) { decimal(out, frame_views[track].volume, 1); return; }
+    if (id == VP_VERB || id == VP_ECHO) { /* the layer's sends, 0..15 shown as 0..100 */
+        uint8_t sends[2]; groove_sends_get(track, sends);
+        decimal(out, (int)((sends[id == VP_ECHO] * 100U + 7U) / 15U), 1);
+        return;
+    }
     if (id == VX_SPACE + 1 && groove_delay_synced(frame_effects[1])) {
         static const char *const division[] = {"1/32T", "1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/8D", "1/4"};
         strcpy(out, division[(frame_effects[1] - GROOVE_DELAY_SYNC) % 9U]);
@@ -1632,6 +1647,11 @@ static __attribute__((noinline)) void vesper_value(unsigned id, char out[12])
     if (!lush_param_applies(track, id)) { strcpy(out, "--"); return; }
     int v = lush_param_get(track, id);
     if (id == LP_RATE) strcpy(out, rates[v & 7]);
+    else if (id == LP_POS) {
+        if (!v) { strcpy(out, "C"); return; }
+        out[0] = v < 0 ? 'L' : 'R';
+        decimal(out + 1, v < 0 ? -v : v, 1);
+    }
     else if (id == LP_CHORUS) strcpy(out, v ? "ON" : "OFF");
     else {
         char *at = out;
@@ -1643,13 +1663,14 @@ static __attribute__((noinline)) void vesper_value(unsigned id, char out[12])
 static unsigned vesper_bar(unsigned id)
 {
     static const uint8_t span[LUSH_PARAMS + 1] = {127,120,120,127,127,127,127,127, 3,40,127,1, 127,127,127,127,
-        127,127,127,127, 7,24,127,20, 127,127,127,127,127, 4};
+        127,127,127,127, 7,24,127,20, 127,127,127,127,127, 127, 4};
     if (id == VP_SOUND) return 64;
     if (id == VP_LEVEL) return frame_views[track].volume / 2U;
+    if (id == VP_VERB || id == VP_ECHO) { uint8_t sends[2]; groove_sends_get(track, sends); return sends[id == VP_ECHO] * 64U / 15U; }
     if (id >= VX_SPACE && id < VX_MASTER) return (unsigned)clamp(frame_effects[id - VX_SPACE] * 64 / 127, 0, 64);
     if (id >= VX_MASTER && id < VX_MASTER + 12) return vesper_fx_get(id - VX_MASTER) / 2U;
     if (!lush_param_applies(track, id)) return 0;
-    int v = lush_param_get(track, id) + (id == LP_ENV ? 60 : id == LP_OCTAVE ? 2 : 0);
+    int v = lush_param_get(track, id) + (id == LP_ENV ? 60 : id == LP_OCTAVE ? 2 : id == LP_POS ? 64 : 0);
     return (unsigned)clamp(v * 64 / span[id], 0, 64);
 }
 /* GLO: global settings. SELECT picks a row, K1 changes it. */
@@ -1728,7 +1749,7 @@ static __attribute__((noinline)) void global_draw(void)
 static __attribute__((noinline)) void vesper_page_draw(unsigned visible)
 {
     if (visible == V_GLOBAL) { global_draw(); return; }
-    static const char *const edit_titles[4] = {"SOUND", "TONE", "OSC", "VOICE"};
+    static const char *const edit_titles[5] = {"SOUND", "TONE", "OSC", "VOICE", "MIX"};
     static const char *const fx_titles[4] = {"DIRT", "TAPE", "CLOUD", "SPACE"};
     const char *title = visible == V_EDIT ? edit_titles[v_edit] : visible == V_ENV ? (v_filter_env ? "FILTER ENV" : "AMP ENV")
                       : visible == V_LFO ? "MOTION" : fx_titles[effects_page & 3U];
@@ -1741,8 +1762,8 @@ static __attribute__((noinline)) void vesper_page_draw(unsigned visible)
              1, DIM, BACK);
         text(40, 34, title, 2, ACCENT, BACK);
         if (visible == V_EDIT || visible == V_FX) {
-            unsigned at = visible == V_FX ? effects_page & 3U : v_edit;
-            for (unsigned i = 0; i < 4; ++i) diamond(196 + 11 * (int)i, 41, i == at ? 3 : 2, i == at ? TEXT : DIM);
+            unsigned at = visible == V_FX ? effects_page & 3U : v_edit, count = visible == V_FX ? 4U : 5U;
+            for (unsigned i = 0; i < count; ++i) diamond(229 - 11 * (int)(count - 1U - i), 41, i == at ? 3 : 2, i == at ? TEXT : DIM);
         }
         if (visible == V_FX)
             text(8, 66, "GLOBAL - ALL FOUR LAYERS", 1, DIM, BACK);
@@ -1821,7 +1842,7 @@ static void vesper_controls(const struct fm1_controls *controls)
     }
     if (page == V_ENV && controls->encoders[0]) v_filter_env = controls->encoders[0] > 0;
     if (page == V_EDIT && controls->encoders[0])
-        v_edit = (unsigned)clamp((int)v_edit + controls->encoders[0], 0, 3);
+        v_edit = (unsigned)clamp((int)v_edit + controls->encoders[0], 0, 4);
     const uint8_t *ids = vesper_params(page);
     for (unsigned c = 0; c < 4; ++c) {
         int delta = controls->encoders[2 + c];
@@ -1836,6 +1857,11 @@ static void vesper_controls(const struct fm1_controls *controls)
             continue;
         }
         if (ids[c] >= VX_MASTER) { vesper_fx_edit(ids[c] - VX_MASTER, delta); continue; }
+        if (ids[c] == VP_VERB || ids[c] == VP_ECHO) { /* 16 steps: one per click */
+            groove_sends_edit(track, ids[c] == VP_ECHO, controls->encoders[2 + c]);
+            groove_project_touch();
+            continue;
+        }
         if (ids[c] == VP_SOUND) {
             unsigned sound = lush_voice_sound(track);
             if (sound != LUSH_NONE)
@@ -2539,7 +2565,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             goto controls_done;
         }
         if (pressed & BUTTON(EDIT)) {
-            v_edit = page == V_EDIT ? (v_edit + 1U) % 4U : 0U;
+            v_edit = page == V_EDIT ? (v_edit + 1U) % 5U : 0U;
             page = V_EDIT; goto controls_done;
         }
         if (pressed & BUTTON(ENV)) {

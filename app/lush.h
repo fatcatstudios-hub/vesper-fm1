@@ -52,10 +52,10 @@ enum {
     LP_CUTOFF, LP_RESO, LP_ENV, LP_DRIVE, LP_SAW, LP_PULSE, LP_SINE, LP_NOISE,
     LP_UNISON, LP_DETUNE, LP_PW, LP_CHORUS, LP_A, LP_D, LP_S, LP_R,
     LP_FA, LP_FD, LP_FS, LP_FR, LP_RATE, LP_MOTION, LP_PAN, LP_DRIFT,
-    LP_SPREAD, LP_BRIGHT, LP_DECAY, LP_VELOCITY, LP_GAIN,
+    LP_SPREAD, LP_BRIGHT, LP_DECAY, LP_VELOCITY, LP_GAIN, LP_POS, /* POS: static pan, -64 left .. +63 right */
     LUSH_PARAMS,
     LP_OCTAVE = LUSH_PARAMS, /* -2..+2 octaves, kept beside the patch */
-    LUSH_VOICE_BYTES = 42
+    LUSH_VOICE_BYTES = 43
 };
 /* Control task: play a key live on a LUSH layer (velocity 0 = release). */
 void lush_live_note(unsigned track, unsigned note, unsigned velocity);
