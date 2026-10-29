@@ -38,49 +38,34 @@ enum {
     AMBER = 0xfd94,   /* soft rose: pause, warnings */
     INK = 0x0001      /* text background: leave it as it is (second pass of bold text) */
 };
-/* Three faint glows: centre x, y, radius^2, 1/radius^2 (Q24) and their RGB565 tint. */
-/* Read for every pixel, so these tables live in on-chip RAM (FM1_AUDIO_DATA):
- * const data stays in flash, and reading flash per pixel made drawing ~10x slower. */
-static FM1_AUDIO_DATA const struct { int16_t x, y; int32_t r2, inv; uint8_t r, g, b; } glows[3] = {
-    {200,  30, 120 * 120, 16777216 / (120 * 120), 1, 7, 6},   /* ice, top right */
-    { 30, 200, 130 * 130, 16777216 / (130 * 130), 4, 3, 6},   /* lavender, low left */
-    {140, 140,  90 *  90, 16777216 / ( 90 *  90), 3, 2, 3},   /* rose haze, centre */
-};
 /* Indigo to violet, top to bottom, dithered against banding, with three soft glows. */
-static unsigned flat_backdrop; /* GLO test switch: gradient without the glows */
+/* One glow: soft-edged tint around (gx, gy), constants straight in the code. */
+#define GLOW(gx, gy, r2, inv, tr, tg, tb) do { \
+        int dx = (int)x - (gx), dy = (int)y - (gy), d2 = dx * dx + dy * dy; \
+        if (d2 < (r2)) { \
+            int w = (int)((uint32_t)((r2) - d2) * (uint32_t)(inv) >> 16); \
+            w = (w * w) >> 8; \
+            r += ((tr) * w) >> 8; g += ((tg) * w) >> 8; b += ((tb) * w) >> 8; \
+        } } while (0)
 static uint16_t frost(unsigned x, unsigned y, unsigned glass)
 {
-    /* Same pixels as before, computed faster: fills run left to right, so the
-     * row's base colour and each glow's distance are carried from the previous
-     * pixel instead of being worked out again (no tables, no extra RAM). */
-    static unsigned row = ~0U, last_x = ~0U, carried;
-    static int base_r, base_g, base_b[2], dist[3], dy2[3];
+    /* Register-only on purpose: on the FM-1 every memory read costs about as
+     * much as the whole sum, so there are no tables and no saved state here.
+     * Same pixels as the table version (checked pixel for pixel). */
     if (y >= 240) y = 239;
-    if (y != row) {
-        row = y; carried = 0;
-        base_r = 1 + (int)(y * 3U + 60U) / 240; base_g = 4 + (int)y / 120;
-        base_b[0] = 4 + (int)(y * 4U) / 240; base_b[1] = 4 + (int)(y * 4U + 30U) / 240;
-        for (unsigned i = 0; i < 3; ++i) { int dy = (int)y - glows[i].y; dy2[i] = dy * dy; }
-    }
-    if (carried && x == last_x + 1U)
-        for (unsigned i = 0; i < 3; ++i) dist[i] += 2 * ((int)x - glows[i].x) - 1; /* (dx)^2 - (dx-1)^2 */
-    else
-        for (unsigned i = 0; i < 3; ++i) { int dx = (int)x - glows[i].x; dist[i] = dx * dx + dy2[i]; }
-    last_x = x; carried = 1;
-    unsigned dither = (x ^ y) & 1U;
-    int r = base_r, g = base_g + (int)dither, b = base_b[dither];
-    for (unsigned i = 0; i < 3 && !flat_backdrop; ++i) {
-        int d2 = dist[i];
-        if (d2 >= glows[i].r2) continue;
-        int w = (int)((uint32_t)(glows[i].r2 - d2) * (uint32_t)glows[i].inv >> 16);
-        w = (w * w) >> 8;
-        r += (glows[i].r * w) >> 8; g += (glows[i].g * w) >> 8; b += (glows[i].b * w) >> 8;
-    }
+    unsigned d = (x ^ y) & 1U, t = y * 4U + 30U * d;
+    int r = 1 + (y >= 60) + (y >= 140) + (y >= 220);              /* 1 + (3y + 60) / 240 */
+    int g = 4 + (y >= 120) + (int)d;                               /* 4 + y / 120 + dither */
+    int b = 4 + (t >= 240) + (t >= 480) + (t >= 720) + (t >= 960); /* 4 + (4y + 30d) / 240 */
+    GLOW(200, 30, 120 * 120, 16777216 / (120 * 120), 1, 7, 6);    /* ice, top right */
+    GLOW(30, 200, 130 * 130, 16777216 / (130 * 130), 4, 3, 6);    /* lavender, low left */
+    GLOW(140, 140, 90 * 90, 16777216 / (90 * 90), 3, 2, 3);       /* rose haze, centre */
     if (glass) { r += 4; g += 10; b += 7; }
     return (uint16_t)((r > 31 ? 31 : r) << 11 | (g > 63 ? 63 : g) << 5 | (b > 31 ? 31 : b));
 }
+#undef GLOW
 /* Five columns per glyph, bit 0 at the top. Digits followed by uppercase. */
-static FM1_AUDIO_DATA const uint8_t font[36][5] = {
+static const uint8_t font[36][5] = {
     {0x3e, 0x51, 0x49, 0x45, 0x3e}, {0, 0x42, 0x7f, 0x40, 0},       {0x42, 0x61, 0x51, 0x49, 0x46},
     {0x21, 0x41, 0x45, 0x4b, 0x31}, {0x18, 0x14, 0x12, 0x7f, 0x10}, {0x27, 0x45, 0x45, 0x45, 0x39},
     {0x3c, 0x4a, 0x49, 0x49, 0x30}, {0x01, 0x71, 0x09, 0x05, 0x03}, {0x36, 0x49, 0x49, 0x49, 0x36},
@@ -131,7 +116,7 @@ static __attribute__((noinline)) void paint_fill(unsigned x, unsigned y, unsigne
             paint_pixels[(row - paint_top) * (paint_end - paint_x) + col - paint_x] =
                 see_through ? frost(col, row, color == PANEL) : color;
 }
-static FM1_AUDIO_DATA const uint8_t punctuation[][6] = {
+static const uint8_t punctuation[][6] = {
     {45,8,8,8,8,8}, {47,0x60,0x18,6,1,0}, {43,8,8,0x3e,8,8},
     {35,0x14,0x7f,0x14,0x7f,0x14}, {37,0x63,0x13,8,0x64,0x63},
     {62,0x41,0x22,0x14,8,0}, {63,2,1,0x51,9,6},
@@ -1622,10 +1607,10 @@ static void speed_test(void)
 }
 /* GLO: global settings. SELECT picks a row, K1 changes it. */
 enum { G_CLOCK, G_CLOCK_IN, G_CLOCK_OUT, G_MIDI_OUT, G_KEYS_OUT, G_LOCAL, G_THRU_IN, G_THRU_OUT,
-       G_BLUETOOTH, G_SWING, G_CLICK, G_BATTERY, G_PAGE_DRAW, G_PAINT, G_DECIDE, G_PASSES, G_BACKDROP, G_FX_TEST, G_BENCH, G_VERSION, G_ROWS };
+       G_BLUETOOTH, G_SWING, G_CLICK, G_BATTERY, G_PAGE_DRAW, G_PAINT, G_DECIDE, G_PASSES, G_FX_TEST, G_BENCH, G_VERSION, G_ROWS };
 static const char *const global_names[G_ROWS] = {"CLOCK", "CLOCK IN", "CLOCK OUT", "MIDI OUT", "KEYS TO MIDI",
     "LOCAL SOUND", "THRU FROM", "THRU TO", "BLUETOOTH", "SWING", "CLICK", "BATTERY", "PAGE DRAW",
-    "  PAINTING", "  DECIDING", "  PASSES/BANDS", "TEST: GLOWS", "TEST: SOUND FX", "TEST: SPEED K1", "VERSION"};
+    "  PAINTING", "  DECIDING", "  PASSES/BANDS", "TEST: SOUND FX", "TEST: SPEED K1", "VERSION"};
 static __attribute__((noinline)) void global_value(unsigned row, char out[20])
 {
     static const char *const ports[] = {"OFF", "DIN", "USB", "DIN+USB", "BLE", "DIN+BLE", "USB+BLE", "ALL"};
@@ -1647,7 +1632,6 @@ static __attribute__((noinline)) void global_value(unsigned row, char out[20])
     case G_PAINT: decimal(out, (int)page_diag[0], 1); strcat(out, " MS"); break;
     case G_DECIDE: decimal(out, (int)page_diag[1], 1); strcat(out, " MS"); break;
     case G_PASSES: { char b[6]; decimal(out, (int)page_diag[2], 1); strcat(out, "/"); decimal(b, (int)page_diag[3], 1); strcat(out, b); } break;
-    case G_BACKDROP: strcpy(out, flat_backdrop ? "OFF" : "ON"); break;
     case G_FX_TEST: strcpy(out, lush_fx_bypassed() ? "OFF" : "ON"); break;
     case G_BENCH: { out[0] = 0; /* flash / ram / backdrop / band fill, ms */
                     for (unsigned i = 0; i < 4; ++i) { char b[12]; decimal(b, (int)(bench_result[i] > 999 ? 999 : bench_result[i]), 1); if (i) strcat(out, "/"); strcat(out, b); }
@@ -1668,7 +1652,6 @@ static void global_edit(unsigned row, int delta)
         flags = delta > 0 ? flags | GROOVE_RADIO_ON : flags & ~(unsigned)GROOVE_RADIO_ON;
         if (flags != groove_settings_radio_flags()) (void)groove_settings_radio(flags, groove_settings_role_value());
     } else if (row == G_SWING || row == G_CLICK) groove_sequence_setting_edit(row == G_SWING ? 0 : 1, delta);
-    else if (row == G_BACKDROP) { flat_backdrop = delta < 0; saved_cache.shown_page = ~0U; } /* redraw to show it */
     else if (row == G_FX_TEST) lush_fx_bypass(delta < 0);
     else if (row == G_BENCH) speed_test();
 }
