@@ -28,33 +28,19 @@ static const struct { int16_t x, y; int32_t r2, inv; uint8_t r, g, b; } glows[3]
     { 30, 200, 130 * 130, 16777216 / (130 * 130), 4, 3, 6},   /* lavender, low left */
     {140, 140,  90 *  90, 16777216 / ( 90 *  90), 3, 2, 3},   /* rose haze, centre */
 };
-static uint16_t frost_slow(unsigned x, unsigned y, unsigned glass)
+/* Indigo to violet, top to bottom, dithered against banding, with three soft glows. */
+static uint16_t frost(unsigned x, unsigned y, unsigned glass)
 {
-    /* Indigo to violet, top to bottom. */
-    int dither = 0;
-    int r = 1 + (int)(y * 3U + 60U) / 240, g = 4 + (int)y / 120 + dither, b = 4 + (int)(y * 4U + 30U * (unsigned)dither) / 240;
+    if (y >= 240) y = 239;
+    unsigned dither = (x ^ y) & 1U;
+    int r = 1 + (int)(y * 3U + 60U) / 240, g = 4 + (int)y / 120 + (int)dither, b = 4 + (int)(y * 4U + 30U * dither) / 240;
     for (unsigned i = 0; i < 3; ++i) {
         int dx = (int)x - glows[i].x, dy = (int)y - glows[i].y, d2 = dx * dx + dy * dy;
         if (d2 >= glows[i].r2) continue;
-        int w = (int)((uint32_t)(glows[i].r2 - d2) * (uint32_t)glows[i].inv >> 16); /* 0..256; product < 2^25 */
-        w = (w * w) >> 8;                                                     /* soft edge */
+        int w = (int)((uint32_t)(glows[i].r2 - d2) * (uint32_t)glows[i].inv >> 16);
+        w = (w * w) >> 8;
         r += (glows[i].r * w) >> 8; g += (glows[i].g * w) >> 8; b += (glows[i].b * w) >> 8;
     }
-    if (glass) { r += 4; g += 10; b += 7; }  /* frosted glass: lifted, a touch of ice */
-    return (uint16_t)((r > 31 ? 31 : r) << 11 | (g > 63 ? 63 : g) << 5 | (b > 31 ? 31 : b));
-}
-/* The backdrop is smooth, so it is computed once on a 3-pixel grid; each
- * pixel is then a lookup plus dither (and the glass lift for panels). */
-static uint16_t frost_cells[80 * 80];
-static __attribute__((cold)) void frost_build(void)
-{
-    for (unsigned cy = 0; cy < 80; ++cy)
-        for (unsigned cx = 0; cx < 80; ++cx) frost_cells[cy * 80 + cx] = frost_slow(cx * 3 + 1, cy * 3 + 1, 0);
-}
-static inline __attribute__((always_inline)) uint16_t frost(unsigned x, unsigned y, unsigned glass)
-{
-    unsigned c = frost_cells[((y * 171U) >> 9) * 80U + ((x * 171U) >> 9)];
-    unsigned r = c >> 11, g = ((c >> 5) & 63U) + ((x ^ y) & 1U), b = c & 31U;
     if (glass) { r += 4; g += 10; b += 7; }
     return (uint16_t)((r > 31 ? 31 : r) << 11 | (g > 63 ? 63 : g) << 5 | (b > 31 ? 31 : b));
 }
@@ -77,8 +63,7 @@ static const uint8_t font[36][5] = {
  * A page change never exposes the temporary background clear on the panel. */
 enum { PAINT_ROWS = 16, PAINT_BANDS = FM1_SCREEN_HEIGHT / PAINT_ROWS };
 _Static_assert(FM1_SCREEN_WIDTH * PAINT_ROWS <= FM1_SCREEN_DMA_PIXELS, "LCD band capacity");
-static uint16_t paint_buffers[2][FM1_SCREEN_WIDTH * PAINT_ROWS], *paint_pixels = paint_buffers[0];
-static unsigned paint_which;
+static uint16_t paint_pixels[FM1_SCREEN_WIDTH * PAINT_ROWS];
 static uint8_t paint_left[PAINT_BANDS], paint_right[PAINT_BANDS];
 static unsigned paint_rendering, paint_top, paint_next, paint_x, paint_end;
 static uint32_t paint_priority;
@@ -1676,24 +1661,24 @@ static void vesper_scope_frame(void)
 {
     /* A new trace only once the last one is fully on the glass: no torn frames. */
     for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) return;
-    static int16_t s[512];
     unsigned at = vesper_scope_at;
-    for (unsigned i = 0; i < 512; ++i) s[i] = vesper_scope[(at + i) & 511U];
+#define s(i) vesper_scope[(at + (i)) & 511U]
     unsigned start = 0, peak = 1;
     /* Trigger on a rising zero crossing after a clear dip, like a hardware scope. */
     for (unsigned i = 8; i < 288; ++i)
-        if (s[i - 1] < 0 && s[i] >= 0 && s[i - 6] < -200) { start = i; break; }
-    for (unsigned i = 0; i < 224; ++i) { unsigned m = (unsigned)(s[start + i] < 0 ? -s[start + i] : s[start + i]); if (m > peak) peak = m; }
+        if (s(i - 1) < 0 && s(i) >= 0 && s(i - 6) < -200) { start = i; break; }
+    for (unsigned i = 0; i < 224; ++i) { unsigned m = (unsigned)(s(start + i) < 0 ? -s(start + i) : s(start + i)); if (m > peak) peak = m; }
     static unsigned gain_peak = 4000;
     gain_peak = peak > gain_peak ? peak : gain_peak - (gain_peak >> 4) + 1U;
-    int prev = 121 - (int)(s[start] * 60 / (int)gain_peak);
+    int prev = 121 - (int)(s(start) * 60 / (int)gain_peak);
     for (unsigned x = 0; x < 224; ++x) {
-        int y = 121 - (int)(s[start + x] * 60 / (int)gain_peak);
+        int y = 121 - (int)(s(start + x) * 60 / (int)gain_peak);
         y = clamp(y, 59, 183);
         frame_scope_lo[x] = (uint8_t)(y < prev ? y : prev);
         frame_scope_hi[x] = (uint8_t)(y < prev ? prev : y);
         prev = y;
     }
+#undef s
 }
 static void draw_page_body(const struct fm1_ble_status *ble)
 {
@@ -2029,8 +2014,12 @@ static void paint_flush(void)
     uint32_t started = fm1_millis();
     paint_rendering = 1;
     cache = &band_cache;
-    /* Two band buffers: compose the next band while the DMA sends the last. */
     for (unsigned visited = 0; visited < PAINT_BANDS; ++visited) {
+        int pending = fm1_screen_pending();
+        if (pending) {
+            if (pending < 0) saved_cache.shown_page = ~0U;
+            break;
+        }
         unsigned band = paint_next;
         /* Fresh knob/key feedback goes ahead of the rest of a page repaint.
          * Rotate within that set so continuous motion cannot starve its text. */
@@ -2046,15 +2035,7 @@ static void paint_flush(void)
         paint_x = left;
         paint_end = left + width;
         memset(cache, 0xff, sizeof *cache);
-        paint_pixels = paint_buffers[paint_which];
         draw_page(&frame_ble);
-        int pending;
-        while ((pending = fm1_screen_pending()) > 0)
-            if (fm1_millis() - started >= 12U) break;
-        if (pending) {   /* still busy (try again next poll) or a transport timeout */
-            if (pending < 0) saved_cache.shown_page = ~0U;
-            break;
-        }
         /* Rasterize directly into the tightly packed DMA rectangle. */
         if (fm1_screen_submit(left, paint_top, width, PAINT_ROWS,
                             paint_pixels, width * PAINT_ROWS)) {
@@ -2064,8 +2045,9 @@ static void paint_flush(void)
         paint_left[band] = FM1_SCREEN_WIDTH;
         paint_right[band] = 0;
         paint_priority &= ~(1U << band);
-        paint_which ^= 1U; /* the DMA borrows this buffer; compose into the other */
-        if (fm1_millis() - started >= 8U) break;
+        /* The DMA borrows paint_pixels. The next iteration/poll must observe
+         * completion before composing another band into that same buffer. */
+        if (fm1_millis() - started >= 4U) break;
     }
     paint_rendering = 0;
     cache = &saved_cache;
@@ -2185,7 +2167,6 @@ void groove_screen_init(void)
     fm1_controls_init();
     for (unsigned key = 0; key < 41; ++key) fm1_led_set(key, 0);
     fm1_screen_init();
-    frost_build();
     boot_started = fm1_millis();
     boot_active = boot_waiting = 1;
     struct fm1_ble_status ble = {0};
