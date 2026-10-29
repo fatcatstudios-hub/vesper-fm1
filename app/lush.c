@@ -133,10 +133,12 @@ static volatile int32_t fx_shimmer = 0;   /* Q15 */
 static volatile int32_t fx_grains = 0;    /* CLOUD GRAINS amount, 0..127 */
 /* VESPER master FX (0.8), set by lush_master(): CLOUD, TAPE and DIRT pages. */
 static volatile int32_t fx_width = 32768, fx_chorus = 19661;
-static volatile int32_t fx_hp = 0, fx_lp = 32767, fx_sat = 0, fx_age = 32767, fx_hiss = 0;
+static volatile int32_t fx_hp = 0, fx_lp = 32767;
+static volatile int32_t fx_level_thr = 0, fx_out_gain = 4096; /* leveler threshold (Q15, 0 = off), OUTPUT (Q12) */
 static volatile int32_t fx_drive = 0, fx_crush = 0, fx_hold = 1, fx_dirt_mix = 32767;
-static volatile int32_t fx_drive_gain = 256, fx_drive_comp = 32767, fx_sat_comp = 32767; /* gain Q8, make-up Q15 */
+static volatile int32_t fx_drive_gain = 256, fx_drive_comp = 32767; /* gain Q8, make-up Q15 */
 static uint32_t beat_phase;
+static volatile int32_t grain_32nd = 1378; /* CLOUD GRAINS: a 32nd note in 22 kHz samples, from the tempo */
 
 /* The LUSH sound on a track, or NULL when the track plays the FM1 engine. */
 const char *lush_track_name(unsigned track)
@@ -259,7 +261,7 @@ static __attribute__((minsize)) int32_t filter_coefficient(unsigned hz)
     if (a > 16384U) a = 16384U + (a - 16384U) / 3U;
     return a > 32767U ? 32767 : (int32_t)a;
 }
-/* VESPER master FX. v: shimmer, tone, width, chorus | hi pass, lo pass, saturate,
+/* VESPER master FX. v: grains, shimmer, width, chorus | hi pass, lo pass, level, output |
  * age | drive, bits, rate, mix; each 0..127 (64 = neutral for tone, width, chorus). */
 __attribute__((minsize)) void lush_master(const uint8_t v[LUSH_MASTER_PARAMS])
 {
@@ -268,13 +270,18 @@ __attribute__((minsize)) void lush_master(const uint8_t v[LUSH_MASTER_PARAMS])
     fx_chorus = (int32_t)v[3] * 307;                    /* 64 -> today's mix */
     fx_hp = v[4] ? filter_coefficient(lush_filter_hz(0, v[4])) : 0;       /* HI PASS, 0 = off */
     fx_lp = v[5] < 127 ? filter_coefficient(lush_filter_hz(1, v[5])) : 32767; /* LO PASS, 127 = off */
-    fx_sat = (int32_t)v[6] * 4;                         /* drive into the tape curve */
-    fx_age = 32767 - (int32_t)v[7] * 220;               /* darker as it ages */
-    fx_hiss = (int32_t)v[7] * v[7] / 64;                /* and a little hiss */
+    {   /* LEVEL: threshold falls ~0.17 dB a step to about -22 dB; OUTPUT ~0.19 dB a step around 0 dB */
+        int32_t thr = 32768;
+        for (unsigned i = 0; i < v[6]; ++i) thr = (thr * 251) >> 8;
+        fx_level_thr = v[6] ? thr : 0;
+        int32_t out = 4096;
+        for (unsigned i = 64; i < v[7]; ++i) out = (out * 262) >> 8;
+        for (unsigned i = v[7]; i < 64; ++i) out = (out * 251) >> 8;
+        fx_out_gain = out;
+    }
     fx_drive = (int32_t)v[8] * 12;                      /* pre-gain into the clipper */
     fx_drive_gain = 256 + fx_drive * 2;                 /* 1x .. ~13x, Q8 */
     fx_drive_comp = (int32_t)((32767L * 256) / (256 + fx_drive)); /* hold the level as it clips */
-    fx_sat_comp = (int32_t)((32767L * 256) / (256 + fx_sat * 3 / 4));
     fx_crush = v[9] ? 1 + (int32_t)v[9] * 11 / 127 : 0; /* bits removed: 1..12 */
     fx_hold = 1 + (int32_t)v[10] * 15 / 127;            /* sample-and-hold length */
     fx_dirt_mix = (int32_t)v[11] * 258;
@@ -284,6 +291,7 @@ __attribute__((minsize)) void lush_effects(const uint8_t fx[4], unsigned delay_t
     lush_tables_build();
     if (tempo >= 30 && tempo <= 300)
         beat_inc = (uint32_t)(((uint64_t)tempo << 32) / (60ULL * 44100ULL * 16ULL));
+    if (tempo >= 30 && tempo <= 300) grain_32nd = (int32_t)(165375U / tempo); /* 22050 * 60 / (tempo * 8) */
     fx_shimmer = (int32_t)(shimmer > 127 ? 127 : shimmer) * 180;   /* 0 .. 0.70: band-limited, so it can bloom */
     fx_decay = 15000 + (int32_t)fx[0] * 121;   /* 0.46 .. 0.93 */
     fx_damp = 13000 - 3960 - (int32_t)fx[0] * 40; /* longer tails are a touch brighter; 0.8.3 TONE +33 baked in */
@@ -997,10 +1005,8 @@ enum { GRAIN_BUF = 3072, GRAIN_HALF = 2 * GRAIN_BUF, GRAINS = 4 }; /* 0.28 s */
 static uint8_t grain_buf[GRAIN_BUF];
 static unsigned grain_w;                     /* write head in half-samples (22 kHz ticks) */
 static int32_t grain_in, grain_lp, grain_hp, grain_soft[4], grain_out[2], grain_prev[2];
-static uint32_t grain_seed = 0x2545f491U, grain_wait;
+static uint32_t grain_seed = 0x2545f491U, grain_tick = ~0U;
 static struct grain { int32_t pos, step, left; uint32_t phase, inc; int32_t gl, gr; } grains[GRAINS];
-static const uint16_t grain_len[8] = {1320, 1600, 1900, 2250, 2650, 3100, 3600, 3970};
-static const uint32_t grain_inc[8] = {1626881U, 1342177U, 1130254U, 954437U, 810364U, 692737U, 596523U, 540924U}; /* 2^31 / len */
 static inline LUSH_HOT uint8_t mu_encode(int32_t x)
 {
     unsigned sign = x < 0 ? 0x80U : 0U, m = (unsigned)(x < 0 ? -x : x);
@@ -1020,24 +1026,27 @@ static inline LUSH_HOT uint32_t grain_random(void)
     grain_seed = grain_seed * 1664525U + 1013904223U;
     return grain_seed >> 8;
 }
-static inline LUSH_HOT void grain_spawn(struct grain *g, int32_t amount)
+static inline LUSH_HOT void grain_spawn(struct grain *g, int32_t amount, int32_t span)
 {
+    /* span: the grid step in samples. Grains last one and a half steps, a
+     * quarter of them half a step (a stutter). Octave-up and reversed grains come in as GRAINS rises. */
     uint32_t r = grain_random();
-    unsigned k = r & 7U, kind = (r >> 3) & 127U;
+    unsigned kind = (r >> 3) & 127U;
     g->step = amount > 40 && kind < (unsigned)amount / 3U ? 2               /* octave up */
             : amount > 64 && kind > 127U - (unsigned)amount / 6U ? -1       /* reversed */
             : 1;
-    if (g->step == -1) k &= 3U;                                          /* reversed grains stay short enough to fit */
-    unsigned len = grain_len[k];
-    int32_t lo = g->step == 2 ? (int32_t)len + 64 : 64;
-    int32_t hi = g->step == -1 ? GRAIN_HALF - 2 * (int32_t)len - 64 : GRAIN_HALF - 64;
+    int32_t len = (r & 3U) ? span + (span >> 1) : span >> 1;          /* overlap the next grid step by half */
+    int32_t cap = g->step == -1 ? 2900 : 3900;                           /* must fit the 0.28 s memory */
+    if (len > cap) len = cap;
+    if (len < 400) len = 400;
+    int32_t lo = g->step == 2 ? len + 64 : 64;
+    int32_t hi = g->step == -1 ? GRAIN_HALF - 2 * len - 64 : GRAIN_HALF - 64;
     int32_t back = lo + (int32_t)((((r >> 10) & 0xffffU) * (uint32_t)(hi - lo)) >> 16);
     int32_t pos = (int32_t)grain_w - back;
     g->pos = pos < 0 ? pos + GRAIN_HALF : pos;
-    g->left = (int32_t)len; g->phase = 0; g->inc = grain_inc[k];
+    g->left = len; g->phase = 0; g->inc = 0x80000000U / (uint32_t)len;   /* half a sine across the grain */
     int32_t pan = 9000 + (int32_t)(grain_random() & 16383U) + (int32_t)(grain_random() & 4095U); /* 9000..29500 */
     g->gl = 46000 - (pan * 46000 >> 15) + 4000; g->gr = (pan * 46000 >> 15) + 4000;               /* random, never hard */
-    grain_wait = (len * (16U - (unsigned)amount / 10U)) >> 4;            /* 1..~4 grains overlap */
 }
 static inline LUSH_HOT void cloud_sample(int32_t input, int32_t amount, int32_t out[2])
 {
@@ -1045,10 +1054,18 @@ static inline LUSH_HOT void cloud_sample(int32_t input, int32_t amount, int32_t 
     grain_lp += ((input - grain_hp - grain_lp) * 20000) >> 15;           /* ~3.4 kHz before 11 kHz storage */
     if (grain_w & 1U) grain_buf[grain_w >> 1] = mu_encode((grain_in + grain_lp) >> 1);
     else grain_in = grain_lp;
-    if (grain_wait) --grain_wait;
-    else
-        for (unsigned g = 0; g < GRAINS; ++g)
-            if (!grains[g].left) { grain_spawn(&grains[g], amount); break; }
+    /* On the tempo grid: eighths when GRAINS is low, sixteenths in the middle,
+     * 32nds (with an extra grain now and then) at the top. */
+    uint32_t tick = beat_phase >> 25;                                    /* 32nd-note counter */
+    if (tick != grain_tick) {
+        grain_tick = tick;
+        unsigned every = amount < 43 ? 4U : amount < 86 ? 2U : 1U; /* in 32nds */
+        if (!(tick & (every - 1U))) {
+            unsigned spawn = 1U + (amount > 100 && (grain_random() & 1U));
+            for (unsigned g = 0; g < GRAINS && spawn; ++g)
+                if (!grains[g].left) { grain_spawn(&grains[g], amount, grain_32nd * (int32_t)every); --spawn; }
+        }
+    }
     int32_t l = 0, r = 0;
     for (unsigned g = 0; g < GRAINS; ++g) {
         struct grain *q = &grains[g];
@@ -1103,8 +1120,15 @@ static inline LUSH_HOT int32_t allpass_mod(struct line *l, uint32_t n_q16, int32
 static inline LUSH_HOT void reverb_sample(int32_t input, int32_t out[2])
 {
     int32_t decay = fx_decay, damp = fx_damp;
-    if (fx_shimmer) /* feed the octave-up tail back in */
-        input += (int32_t)(((int64_t)shimmer_sample((rev_out[0] + rev_out[1]) >> 1) * fx_shimmer) >> 15);
+    /* SHIMMER goes deep into the tank: a quarter through the input diffusers,
+     * the rest straight into the modulated, damped loop, so every pass of the
+     * octave is smeared and darkened by the reverb itself. */
+    int32_t shim = 0;
+    if (fx_shimmer) {
+        shim = (int32_t)(((int64_t)shimmer_sample((rev_out[0] + rev_out[1]) >> 1) * fx_shimmer) >> 15);
+        input += shim >> 2;
+        shim = (shim * 3) >> 3; /* three eighths into each side of the loop */
+    }
     rev_low += ((input - rev_low) * 1100) >> 15;           /* keep lows out of the tail */
     input -= rev_low;
     rev_bandwidth += ((input - rev_bandwidth) * 26000) >> 15;
@@ -1117,8 +1141,8 @@ static inline LUSH_HOT void reverb_sample(int32_t input, int32_t out[2])
     int32_t tri = (int32_t)(rev_lfo >> 16); tri = tri < 32768 ? tri : 65535 - tri; /* 0..32767 */
     uint32_t mod_l = ((uint32_t)(l_ap1.length - 26U) << 16) + (uint32_t)tri * 24U;
     uint32_t mod_r = ((uint32_t)(r_ap1.length - 26U) << 16) + (uint32_t)(32767 - tri) * 24U;
-    int32_t left = x + ((tap(&r_d2, r_d2.length - 1U) * decay) >> 15);
-    int32_t right = x + ((tap(&l_d2, l_d2.length - 1U) * decay) >> 15);
+    int32_t left = x + shim + ((tap(&r_d2, r_d2.length - 1U) * decay) >> 15);
+    int32_t right = x + shim + ((tap(&l_d2, l_d2.length - 1U) * decay) >> 15);
     left = allpass_mod(&l_ap1, mod_l, left, -22938);
     push(&l_d1, left);
     left = tap(&l_d1, l_d1.length - 1U);
@@ -1183,15 +1207,16 @@ static inline LUSH_HOT int32_t soft_clip(int32_t x)
     return (3 * x - ((x2 * x) >> 15)) >> 1;
 }
 enum { PRE_BUSES = 5 }; /* dry L, dry R, chorus, delay send, reverb send */
-static int32_t age_lp[PRE_BUSES], hold_v[PRE_BUSES], filt[PRE_BUSES][4];
+static int32_t hold_v[PRE_BUSES], filt[PRE_BUSES][4];
 static uint8_t pre_take[N];
-static uint32_t hiss_seed = 1, hold_count;
+static int32_t level_env, level_gain = 32767, level_target = 32767; /* LEVEL leveler state */
+static uint32_t hold_count;
 static inline LUSH_HOT void pre_fx(void)
 {
     const int32_t g = fx_drive_gain, dc = fx_drive_comp, crush = fx_crush, hold = fx_hold, mixd = fx_dirt_mix;
-    const int32_t hp = fx_hp, lp = fx_lp, sat = fx_sat, sc = fx_sat_comp, age = fx_age, hiss = fx_hiss;
+    const int32_t hp = fx_hp, lp = fx_lp;
     const int drive_on = g != 256, dirt_on = drive_on || crush || hold > 1, filter_on = hp || lp < 32767;
-    if (!dirt_on && !filter_on && !sat && age >= 32767) return;
+    if (!dirt_on && !filter_on) return;
     if (hold > 1)
         for (unsigned j = 0; j < N; ++j) { /* shared hold clock */
             pre_take[j] = 0;
@@ -1200,7 +1225,7 @@ static inline LUSH_HOT void pre_fx(void)
     for (unsigned c = 0; c < PRE_BUSES; ++c) {
         int32_t *p = c < 2 ? bus_dry + c : c == 2 ? bus_chorus : c == 3 ? bus_delay : bus_reverb;
         const unsigned stride = c < 2 ? 2U : 1U;
-        int32_t held = hold_v[c], aged = age_lp[c];
+        int32_t held = hold_v[c];
         int32_t h1 = filt[c][0], h2 = filt[c][1], l1 = filt[c][2], l2 = filt[c][3];
         for (unsigned j = 0; j < N; ++j, p += stride) {
             int32_t x = *p;
@@ -1216,19 +1241,11 @@ static inline LUSH_HOT void pre_fx(void)
                 h2 += ((x - h2) * hp) >> 15; x -= h2;
             }
             if (lp < 32767) { l1 += ((x - l1) * lp) >> 15; l2 += ((l1 - l2) * lp) >> 15; x = l2; }
-            if (sat) x = (soft_clip((x * (256 + sat)) >> 8) * sc) >> 15;
-            if (age < 32767) { aged += ((x - aged) * age) >> 15; x = aged; }
             *p = x;
         }
-        hold_v[c] = held; age_lp[c] = aged;
+        hold_v[c] = held;
         filt[c][0] = h1; filt[c][1] = h2; filt[c][2] = l1; filt[c][3] = l2;
     }
-    if (hiss) /* tape hiss on the dry signal only */
-        for (unsigned j = 0; j < N; ++j) {
-            hiss_seed = hiss_seed * 1664525U + 1013904223U;
-            int32_t h = (((int32_t)(hiss_seed >> 17) - 16384) * hiss) >> 15;
-            bus_dry[2 * j] += h; bus_dry[2 * j + 1] += h;
-        }
 }
 
 /* Keys played live (VESPER play mode): queued by the control task, started by
@@ -1288,6 +1305,7 @@ LUSH_CODE void lush_render(int32_t *output)
     if (dtime_r > ((uint32_t)(DELAY_LEN - 2) << 16)) dtime_r = (uint32_t)(((uint64_t)dtime * 2U) / 3U);
     pre_fx(); /* DIRT and TAPE first, on every bus */
     const int32_t width = fx_width, chorus_mix = fx_chorus, grains_on = fx_grains; /* read once per block */
+    const int32_t level_thr = fx_level_thr, out_gain = fx_out_gain;
     const int32_t grain_wet = grains_on * 420 > 29500 ? 29500 : grains_on * 420, grain_feedback = grains_on * 170;
     for (unsigned j = 0; j < N; ++j) {
         /* chorus */
@@ -1360,6 +1378,24 @@ LUSH_CODE void lush_render(int32_t *output)
             int32_t m = (l + r) >> 1, side = (int32_t)(((int64_t)((l - r) >> 1) * width) >> 15);
             l = m + side; r = m - side;
         }
+        if (level_thr) { /* LEVEL: smooth 2:1 leveler, linked stereo, ~1 ms attack, ~0.25 s release */
+            int32_t a = l < 0 ? -l : l, b = r < 0 ? -r : r;
+            if (b > a) a = b;
+            level_env += a > level_env ? ((a - level_env) * 700) >> 15 : ((a - level_env) * 3) >> 15;
+            if (!(j & 15U)) { /* new gain every 16 samples: sqrt(threshold / level) above the threshold */
+                int32_t target = 32767;
+                if (level_env > level_thr) {
+                    int32_t x = (level_thr << 15) / level_env;                     /* Q15, < 1; 32-bit hardware divide */
+                    int32_t root = (x + 32768) >> 1;                             /* Newton sqrt in Q15 */
+                    for (unsigned k = 0; k < 4; ++k) root = (root + (x << 15) / root) >> 1;
+                    target = root;
+                }
+                level_target = target;
+            }
+            level_gain += (level_target - level_gain) >> 6;
+            l = (int32_t)(((int64_t)l * level_gain) >> 15); r = (int32_t)(((int64_t)r * level_gain) >> 15);
+        }
+        if (out_gain != 4096) { l = (l * out_gain) >> 12; r = (r * out_gain) >> 12; }
         /* -1 dB bus trim keeps the limiter for rare peaks only. */
         output[2 * j] += soft_limit(dc_block(0, analog(0, (l * 29200) >> 15))) << 8;
         output[2 * j + 1] += soft_limit(dc_block(1, analog(1, (r * 29200) >> 15))) << 8;

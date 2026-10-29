@@ -1571,7 +1571,7 @@ static __attribute__((noinline)) const char *vesper_label(unsigned id)
         "F ATTACK", "F DECAY", "F SUST", "F REL", "RATE", "FILTER", "AUTOPAN", "DRIFT",
         "WIDTH", "BRIGHT", "RING", "VEL", "GAIN", "OCTAVE"};
     static const char *const fx[16] = {"DECAY", "TIME", "ECHO", "REVERB",
-        "GRAINS", "SHIMMER", "WIDTH", "CHORUS", "HI PASS", "LO PASS", "SATURATE", "AGE",
+        "GRAINS", "SHIMMER", "WIDTH", "CHORUS", "HI PASS", "LO PASS", "LEVEL", "OUTPUT",
         "DRIVE", "BITS", "RATE", "MIX"};
     if (id >= VX_SPACE && id < VX_MASTER + 12) {
         if (id == VX_SPACE + 1 && groove_delay_synced(frame_effects[1])) return "DIVISION";
@@ -1612,6 +1612,17 @@ static __attribute__((noinline)) void vesper_value(unsigned id, char out[12])
                 if (hz < 10000U) { char d[4] = {'.', (char)('0' + hz / 100U % 10U), 0}; strcat(out, d); }
                 strcat(out, "K");
             }
+            return;
+        }
+        if (id == VX_MASTER + 6 && !v) { strcpy(out, "OFF"); return; }
+        if (id == VX_MASTER + 7) { /* OUTPUT in dB, ~0.19 dB a step */
+            int db10 = (v - 64) * 19 / 10;           /* tenths of a dB */
+            char *at = out;
+            if (db10 > 0) *at++ = '+';
+            if (db10 < 0) { *at++ = '-'; db10 = -db10; }
+            decimal(at, db10 / 10, 1);
+            if (db10 % 10) { char d[3] = {'.', (char)('0' + db10 % 10), 0}; strcat(out, d); }
+            strcat(out, "DB");
             return;
         }
         if (id == VX_MASTER + 9 && v) v = 1 + v * 11 / 127; /* bits removed */
