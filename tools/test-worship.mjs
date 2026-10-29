@@ -74,9 +74,9 @@ check(!(cell(p, 0, 0).bits & 31) && !(cell(p, 3, 0).bits & 31), 'no chord (pad) 
 check(am[1].note % 12 === 9, 'bass follows to A');
 check(am[0].note % 12 === 9, 'arp starts on the new root');
 const arpNotes = [...Array(16).keys()].map((s) => cell(p, 0, s)).filter((c) => c.vel).map((c) => c.note % 12);
-check(arpNotes.includes(0) && !arpNotes.includes(1), 'arp uses the minor third (C), not C#');
+check(arpNotes.includes(1) && !arpNotes.includes(0), 'VESPER major only: arp uses the major third (C#), not C');
 const leadNotes = [...Array(48).keys()].map((s) => cell(p, 1, s)).filter((c) => c.vel).map((c) => c.note % 12);
-check(leadNotes.length > 0 && leadNotes.every((n) => [9, 4, 11, 0].includes(n)), 'lead sequence stays on A-minor chord tones (A E B C)');
+check(leadNotes.length > 0 && leadNotes.every((n) => [9, 4, 11, 1].includes(n)), 'lead sequence stays on A-major chord tones (A E B C#)');
 
 // 4. Release: chord latches and the keys did not trigger notes.
 for (const k of [4, 7, 11]) x.sim_control(1, k, 0);
@@ -88,14 +88,14 @@ check(cell(p, 2, 0).note % 12 === 9, 'chord latches after release');
 x.sim_control(1, 9, 1); render(5); x.sim_control(1, 9, 0); render(5);
 p = exportProject();
 { const ns = [...Array(16).keys()].map((q) => cell(p, 0, q)).filter((c) => c.vel).map((c) => c.note % 12);
-  check(cell(p, 2, 0).note % 12 === 2 && ns.includes(5) && !ns.includes(6), 'single key D -> D minor (quality kept)'); }
+  check(cell(p, 2, 0).note % 12 === 2 && ns.includes(6) && !ns.includes(5), 'single key D -> D major'); }
 for (const k of [2, 4, 9]) x.sim_control(1, k, 1);
 render(5);
 for (const k of [2, 4, 9]) x.sim_control(1, k, 0);
 render(5);
 p = exportProject();
 { const ns = [...Array(16).keys()].map((q) => cell(p, 0, q)).filter((c) => c.vel).map((c) => c.note % 12);
-  check(cell(p, 2, 0).note % 12 === 7 && ns.includes(9) && !ns.includes(10) && !ns.includes(11), 'G A D -> G sus2 (9th replaces the third)'); }
+  check(cell(p, 2, 0).note % 12 === 7 && ns.includes(11) && !ns.includes(10), 'G A D -> G major (lowest key sets a major key)'); }
 const stillPlaying = render(44100 * 2 / 128);
 check(stillPlaying.rms > 0.003, `still playing after chord changes (rms ${stillPlaying.rms.toFixed(4)})`);
 

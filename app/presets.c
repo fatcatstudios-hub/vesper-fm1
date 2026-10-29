@@ -416,12 +416,15 @@ const char *worship_chord_quality(void)
     int scene = active_scene();
     return scene >= 0 && follow.scene == scene ? kinds[follow.quality] : "";
 }
+/* Layers the player has recorded into: a key change must not overwrite them. */
+static uint8_t recorded;
+void worship_layer_recorded(unsigned track) { if (track < LAYERS) recorded |= (uint8_t)(1U << track); }
 static int chord_apply(const struct scene *s, unsigned root, unsigned quality)
 {
     if (root == follow.root && quality == follow.quality) return 0;
     struct groove_step cells[GROOVE_STEPS];
     for (unsigned t = 0; t < LAYERS; ++t) {
-        if (s->part[t].role == BEAT) continue;
+        if (s->part[t].role == BEAT || (recorded & (1U << t))) continue;
         layer_cells(s, t, root, quality, cells);
         groove_sequence_replace(t, 0, cells, GROOVE_STEPS);
     }
@@ -452,12 +455,8 @@ int worship_keys(uint32_t keys, uint32_t pressed, int octave)
             unsigned note = groove_key_note(0, key, octave);
             if (note < 128) mask |= 1U << ((note - lowest) % 12U);
         }
-    unsigned root = lowest % 12U, quality = follow.quality;
-    if (mask & (1U << 4)) quality = MAJ;
-    else if (mask & (1U << 3)) quality = MIN;
-    else if (mask & (1U << 2)) quality = SUS2;
-    else if (mask & (1U << 5)) quality = SUS4;
-    return chord_apply(s, root, quality);
+    (void)mask;
+    return chord_apply(s, lowest % 12U, MAJ); /* VESPER: the lowest key sets a major key */
 }
 /* HOME K1/K2: transpose the chord by semitones and step through its quality. */
 int worship_chord_edit(int root_delta, int quality_delta)
@@ -467,8 +466,8 @@ int worship_chord_edit(int root_delta, int quality_delta)
     const struct scene *s = &scenes[scene];
     if (follow.scene != scene) { follow.scene = (int8_t)scene; follow.root = s->root; follow.quality = MAJ; }
     unsigned root = (unsigned)(((int)follow.root + root_delta % 12 + 12) % 12);
-    unsigned quality = (unsigned)(((int)follow.quality + quality_delta % QUALITIES + QUALITIES) % QUALITIES);
-    return chord_apply(s, root, quality);
+    (void)quality_delta;
+    return chord_apply(s, root, MAJ);
 }
 
 /* Control-task poll: keep the LUSH engine in step with the loaded scene, the
@@ -527,7 +526,7 @@ void worship_poll(void)
     int scene = active_scene();
     if (scene != voice_scene || loads != loads_seen) {
         /* New scene or project: stored voice edits, else the scene's sounds. */
-        voice_scene = (int8_t)scene; loads_seen = loads;
+        voice_scene = (int8_t)scene; loads_seen = loads; recorded = 0;
         for (unsigned t = 0; scene >= 0 && t < LAYERS; ++t) {
             if (scenes[scene].lush[t] == LUSH_NONE) continue;
             if (!(pending_ok & (1U << t)) || lush_voice_import(t, pending[t]))

@@ -1992,11 +1992,10 @@ static void draw_page_body(const struct fm1_ble_status *ble)
             static const char *const labels[4] = {"LEVEL", "STEP", "NOTE", "BPM"};
             label = labels[col];
             if (visible == OVERVIEW && col < 3 && worship_chord_root()) {
-                static const char *const home[3] = {"KEY", "CHORD", "LEVEL"};
-                const char *q = worship_chord_quality();
+                static const char *const home[3] = {"KEY", "", "LEVEL"}; /* VESPER: major keys only */
                 label = home[col];
                 if (col == 0) strcpy(value, worship_chord_root());
-                else if (col == 1) strcpy(value, q[0] == 'm' ? "MIN" : q[0] ? (q[3] == '2' ? "SUS2" : "SUS4") : "MAJ");
+                else if (col == 1) value[0] = 0;
                 else decimal(value, v->volume, 1);
             } else if (col == 0)
                 decimal(value, v->volume, 1);
@@ -2790,7 +2789,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                      * chord, K2 steps its quality, K3 layer level, K4 BPM. */
                     if (controls->encoders[1]) select_track(controls->encoders[1]);
                     if ((controls->encoders[2] || controls->encoders[3]) &&
-                        worship_chord_edit(controls->encoders[2], controls->encoders[3]) > 0) {
+                        worship_chord_edit(controls->encoders[2], 0) > 0) {
                         notice = worship_chord_label(); notice_until = now + 1500U;
                     }
                     if (controls->encoders[4]) groove_control_edit(track, 0, controls->encoders[4], 0);
@@ -3080,7 +3079,25 @@ controls_done:
     if (page == TONE_EDIT && groove_source_type(track) == GROOVE_303)
         keys &= ~((1U << edit_keys[8]) | (1U << edit_keys[9]));
     /* WORSHIP: on HOME the keys pick the chord the scene follows. */
-    if (!play_mode && page != STEPS && page != ACTIONS && !mode && !glo_down) {
+    if (writing && !mode && !glo_down && lush_track_name(track)) {
+        /* VESPER REC: keys write notes into the focused voice's sequence. Playing:
+         * at the current step (live). Stopped: at the cursor, which then moves on
+         * (step entry). The keys are heard through the voice as they are played. */
+        struct groove_view view = {0};
+        groove_get_view(track, cursor, &view);
+        for (unsigned key = 0; key < 27; ++key)
+            if ((key_down & keys) & (1U << key)) {
+                unsigned note = groove_key_note(track, key, octave);
+                if (note > 127) continue;
+                unsigned step = view.playing ? view.play_step : cursor;
+                groove_sequence_edit(track, step, note, 100);
+                worship_layer_recorded(track);
+                if (!view.playing) {
+                    cursor = (cursor + 1U) % groove_sequence_length(track); step_follow = 0;
+                    groove_edit_seek(track, cursor); /* the engine owns the record cursor */
+                }
+            }
+    } else if (!play_mode && page != STEPS && page != ACTIONS && !mode && !glo_down) {
         int followed = worship_keys(keys, key_down, octave);
         if (followed >= 0) {
             if (followed) { notice = worship_chord_label(); notice_until = now + 2500U; }
