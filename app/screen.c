@@ -1571,7 +1571,7 @@ static __attribute__((noinline)) const char *vesper_label(unsigned id)
         "F ATTACK", "F DECAY", "F SUST", "F REL", "RATE", "FILTER", "AUTOPAN", "DRIFT",
         "WIDTH", "BRIGHT", "RING", "VEL", "GAIN", "OCTAVE"};
     static const char *const fx[16] = {"DECAY", "TIME", "ECHO", "REVERB",
-        "GRAINS", "TONE", "WIDTH", "CHORUS", "HI PASS", "LO PASS", "SATURATE", "AGE",
+        "GRAINS", "SHIMMER", "WIDTH", "CHORUS", "HI PASS", "LO PASS", "SATURATE", "AGE",
         "DRIVE", "BITS", "RATE", "MIX"};
     if (id >= VX_SPACE && id < VX_MASTER + 12) {
         if (id == VX_SPACE + 1 && groove_delay_synced(frame_effects[1])) return "DIVISION";
@@ -1598,7 +1598,7 @@ static __attribute__((noinline)) void vesper_value(unsigned id, char out[12])
     if (id >= VX_SPACE && id < VX_MASTER) { decimal(out, frame_effects[id - VX_SPACE], 1); return; }
     if (id >= VX_MASTER && id < VX_MASTER + 12) {
         int v = (int)vesper_fx_get(id - VX_MASTER);
-        if (id == VX_MASTER + 1 || id == VX_MASTER + 2 || id == VX_MASTER + 3) { /* 64 = as the scene made it */
+        if (id == VX_MASTER + 2 || id == VX_MASTER + 3) { /* 64 = as the scene made it */
             if (v == 64) { strcpy(out, "0"); return; }
             v -= 64;
             if (v > 0) { *out++ = '+'; }
@@ -2123,6 +2123,7 @@ static void draw(const struct fm1_ble_status *ble)
         midi_active[t] = (int32_t)(midi_until[t] - frame_time) > 0;
     }
     frame_ble = *ble;
+#if !WORSHIP_SLIM
     if (visible == BLE) {
         fm1_bluetooth_get_status(&frame_radio);
         frame_radio_flags = groove_settings_radio_flags();
@@ -2131,6 +2132,7 @@ static void draw(const struct fm1_ble_status *ble)
         for (unsigned i = 0; i < ble->count && i < FM1_BLE_MAX_DEVICES; ++i)
             fm1_ble_get_device(i, &frame_devices[i]);
     }
+#endif
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
         groove_get_view(t, cursor, &frame_views[t]);
     if (visible == STEPS) {
@@ -2793,6 +2795,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 groove_fm_name_edit(track, name_cursor,
                     edit_character((char)patch[145 + name_cursor], controls->encoders[2]));
         }
+#if !WORSHIP_SLIM /* the stock Bluetooth page cannot open in VESPER; GLO has the switch */
     } else if (page == BLE) {
         if (encoder_active(controls->encoders)) ble_forget = 0;
         ble_action = (unsigned)clamp((int)ble_action + controls->encoders[6], 0, ble_view ? 3 : 1);
@@ -2834,6 +2837,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 else { ble_view = ble_action = ble_forget = 0; ble_result = 0; }
             }
         }
+#endif
     } else {
         if (page != BLE) {
             unsigned tracks = page == OVERVIEW || page == STEPS || page == FM_QUICK || page == ARP_EDIT ||
