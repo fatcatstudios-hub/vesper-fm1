@@ -1532,11 +1532,11 @@ static __attribute__((noinline)) const uint8_t *vesper_params(unsigned visible)
         {LP_A, LP_D, LP_S, LP_R}, {LP_FA, LP_FD, LP_FS, LP_FR},
         {LP_RATE, LP_MOTION, LP_PAN, LP_DRIFT},
     };
-    static const uint8_t fx[4][4] = { /* SPACE / CLOUD / TAPE / DIRT */
+    static const uint8_t fx[4][4] = { /* the chain: DIRT -> TAPE -> SPACE -> CLOUD */
+        {VX_MASTER + 8, VX_MASTER + 9, VX_MASTER + 10, VX_MASTER + 11},
+        {VX_MASTER + 4, VX_MASTER + 5, VX_MASTER + 6, VX_MASTER + 7},
         {VX_SPACE + 3, VX_SPACE + 0, VX_SPACE + 2, VX_SPACE + 1},
         {VX_MASTER + 0, VX_MASTER + 1, VX_MASTER + 2, VX_MASTER + 3},
-        {VX_MASTER + 4, VX_MASTER + 5, VX_MASTER + 6, VX_MASTER + 7},
-        {VX_MASTER + 8, VX_MASTER + 9, VX_MASTER + 10, VX_MASTER + 11},
     };
     if (visible == V_FX) return fx[effects_page & 3U];
     if (visible == V_ENV) return pages[6 + v_filter_env];
@@ -1698,7 +1698,7 @@ static __attribute__((noinline)) void vesper_page_draw(unsigned visible)
 {
     if (visible == V_GLOBAL) { global_draw(); return; }
     static const char *const edit_titles[4] = {"SOUND", "TONE", "OSC", "VOICE"};
-    static const char *const fx_titles[4] = {"SPACE", "CLOUD", "TAPE", "DIRT"};
+    static const char *const fx_titles[4] = {"DIRT", "TAPE", "SPACE", "CLOUD"};
     const char *title = visible == V_EDIT ? edit_titles[v_edit] : visible == V_ENV ? (v_filter_env ? "FILTER ENV" : "AMP ENV")
                       : visible == V_LFO ? "MOTION" : fx_titles[effects_page & 3U];
     uint32_t sig = signature(visible * 64U + v_edit * 8U + (visible == V_FX ? effects_page * 4U : track), title, (unsigned)strlen(title));

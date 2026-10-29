@@ -134,7 +134,7 @@ static volatile int32_t fx_shimmer = 0;   /* Q15 */
 static volatile int32_t fx_tone = 0, fx_width = 32768, fx_chorus = 19661;
 static volatile int32_t fx_wow = 0, fx_flutter = 0, fx_sat = 0, fx_age = 32767, fx_hiss = 0;
 static volatile int32_t fx_drive = 0, fx_crush = 0, fx_hold = 1, fx_dirt_mix = 32767;
-static volatile int32_t fx_master_on = 0, fx_drive_gain = 256, fx_drive_comp = 32767, fx_sat_comp = 32767; /* gain Q8, make-up Q15 */
+static volatile int32_t fx_drive_gain = 256, fx_drive_comp = 32767, fx_sat_comp = 32767; /* gain Q8, make-up Q15 */
 static uint32_t beat_phase;
 
 /* The LUSH sound on a track, or NULL when the track plays the FM1 engine. */
@@ -262,7 +262,6 @@ __attribute__((minsize)) void lush_master(const uint8_t v[LUSH_MASTER_PARAMS])
     fx_crush = v[9] ? 1 + (int32_t)v[9] * 11 / 127 : 0; /* bits removed: 1..12 */
     fx_hold = 1 + (int32_t)v[10] * 15 / 127;            /* sample-and-hold length */
     fx_dirt_mix = (int32_t)v[11] * 258;
-    fx_master_on = v[2] != 64 || v[4] || v[5] || v[6] || v[7] || v[8] || v[9] || fx_hold > 1;
 }
 __attribute__((minsize)) void lush_effects(const uint8_t fx[4], unsigned delay_ticks, unsigned tempo, unsigned shimmer)
 {
@@ -1042,62 +1041,72 @@ static inline LUSH_HOT int32_t soft_limit(int32_t x)
     return x < 0 ? -over : over;
 }
 
-/* ---- VESPER master FX: width, DIRT (drive, bit crush, sample hold), TAPE
- * (wow, flutter, saturation, age). Everything is skipped at its neutral value. */
-static int16_t tape_line[2][256];
-static uint8_t tape_write;
-static uint32_t wow_phase, flutter_phase, hiss_seed = 1;
-static int32_t age_lp[2], hold_l, hold_r, hold_count;
+/* ---- VESPER master FX, in chain order DIRT -> TAPE -> SPACE -> CLOUD.
+ * DIRT (drive, bit crush, sample hold) and TAPE (wow, flutter, saturation,
+ * age) run on every bus before the delay, reverb and chorus see it, so echoes
+ * and tails repeat the dirt and the wobble. CLOUD's width is last. Each part
+ * is skipped at its neutral value. */
 static inline LUSH_HOT int32_t soft_clip(int32_t x)
 {   /* 1.5x - 0.5x^3 inside +-1 (Q15), flat outside */
     x = clamp15(x);
     int32_t x2 = (x * x) >> 15;
     return (3 * x - ((x2 * x) >> 15)) >> 1;
 }
-static inline LUSH_HOT void master(int32_t *pl, int32_t *pr)
+enum { PRE_BUSES = 5 }; /* dry L, dry R, chorus, delay send, reverb send */
+static int16_t tape_line[PRE_BUSES][256];
+static int32_t age_lp[PRE_BUSES], hold_v[PRE_BUSES], pre_back[N];
+static uint8_t pre_take[N], tape_write;
+static uint32_t wow_phase, flutter_phase, hiss_seed = 1, hold_count;
+static inline LUSH_HOT void pre_fx(void)
 {
-    int32_t l = *pl, r = *pr;
-    if (fx_width != 32768) {
-        int32_t m = (l + r) >> 1, side = (int32_t)(((int64_t)((l - r) >> 1) * fx_width) >> 15);
-        l = m + side; r = m - side;
-    }
-    if (fx_drive || fx_crush || fx_hold > 1) {
-        int32_t dl = l, dr = r;
-        if (fx_drive) {
-            int32_t g = fx_drive_gain, c = fx_drive_comp;
-            dl = (soft_clip((dl * g) >> 8) * c) >> 15; dr = (soft_clip((dr * g) >> 8) * c) >> 15;
+    const int32_t g = fx_drive_gain, dc = fx_drive_comp, crush = fx_crush, hold = fx_hold, mixd = fx_dirt_mix;
+    const int32_t wow = fx_wow, flut = fx_flutter, sat = fx_sat, sc = fx_sat_comp, age = fx_age, hiss = fx_hiss;
+    const int drive_on = g != 256, dirt_on = drive_on || crush || hold > 1, tape_on = wow || flut;
+    if (!dirt_on && !tape_on && !sat && age >= 32767) return;
+    for (unsigned j = 0; j < N; ++j) { /* shared tape motion and hold clock */
+        if (tape_on) {
+            wow_phase += 39000U;       /* ~0.4 Hz at 44.1 kHz */
+            flutter_phase += 642000U;  /* ~6.6 Hz */
+            pre_back[j] = (128 << 8) + ((sine15(wow_phase) * wow) >> 15) + ((sine15(flutter_phase) * flut) >> 15); /* Q8 */
         }
-        if (fx_crush) { dl = (clamp15(dl) >> fx_crush) << fx_crush; dr = (clamp15(dr) >> fx_crush) << fx_crush; }
-        if (fx_hold > 1) {
-            if (++hold_count >= fx_hold) { hold_count = 0; hold_l = dl; hold_r = dr; }
-            dl = hold_l; dr = hold_r;
+        pre_take[j] = 0;
+        if (++hold_count >= (uint32_t)hold) { hold_count = 0; pre_take[j] = 1; }
+    }
+    for (unsigned c = 0; c < PRE_BUSES; ++c) {
+        int32_t *p = c < 2 ? bus_dry + c : c == 2 ? bus_chorus : c == 3 ? bus_delay : bus_reverb;
+        const unsigned stride = c < 2 ? 2U : 1U;
+        int16_t *line = tape_line[c];
+        int32_t held = hold_v[c], lp = age_lp[c];
+        uint8_t w = tape_write;
+        for (unsigned j = 0; j < N; ++j, p += stride) {
+            int32_t x = *p;
+            if (dirt_on) {
+                int32_t d = x;
+                if (drive_on) d = (soft_clip((d * g) >> 8) * dc) >> 15;
+                if (crush) d = (clamp15(d) >> crush) << crush;
+                if (hold > 1) { if (pre_take[j]) held = d; d = held; }
+                x += ((d - x) * mixd) >> 15;
+            }
+            if (tape_on) {
+                line[w] = (int16_t)clamp15(x);
+                unsigned back = (unsigned)pre_back[j], whole = back >> 8, frac = back & 255U;
+                uint8_t i0 = (uint8_t)(w - whole), i1 = (uint8_t)(i0 - 1U);
+                x = line[i0] + (((line[i1] - line[i0]) * (int32_t)frac) >> 8);
+                ++w;
+            }
+            if (sat) x = (soft_clip((x * (256 + sat)) >> 8) * sc) >> 15;
+            if (age < 32767) { lp += ((x - lp) * age) >> 15; x = lp; }
+            *p = x;
         }
-        l += (((dl - l) * fx_dirt_mix) >> 15); r += (((dr - r) * fx_dirt_mix) >> 15);
+        hold_v[c] = held; age_lp[c] = lp;
     }
-    if (fx_wow || fx_flutter) {
-        tape_line[0][tape_write] = (int16_t)clamp15(l);
-        tape_line[1][tape_write] = (int16_t)clamp15(r);
-        wow_phase += 39000U;          /* ~0.4 Hz at 44.1 kHz */
-        flutter_phase += 640000U;     /* ~6.6 Hz */
-        int32_t back = (128 << 8) + ((sine15(wow_phase) * fx_wow) >> 15) + ((sine15(flutter_phase) * fx_flutter) >> 15); /* Q8 */
-        unsigned whole = (unsigned)back >> 8, frac = (unsigned)back & 255U;
-        uint8_t i0 = (uint8_t)(tape_write - whole), i1 = (uint8_t)(i0 - 1U);
-        l = tape_line[0][i0] + (((tape_line[0][i1] - tape_line[0][i0]) * (int32_t)frac) >> 8);
-        r = tape_line[1][i0] + (((tape_line[1][i1] - tape_line[1][i0]) * (int32_t)frac) >> 8);
-        ++tape_write;
-    }
-    if (fx_sat) {
-        int32_t g = 256 + fx_sat;
-        int32_t c = fx_sat_comp;
-        l = (soft_clip((l * g) >> 8) * c) >> 15; r = (soft_clip((r * g) >> 8) * c) >> 15;
-    }
-    if (fx_age < 32767) {
-        age_lp[0] += ((l - age_lp[0]) * fx_age) >> 15; age_lp[1] += ((r - age_lp[1]) * fx_age) >> 15;
-        hiss_seed = hiss_seed * 1664525U + 1013904223U;
-        int32_t hiss = (((int32_t)(hiss_seed >> 17) - 16384) * fx_hiss) >> 15;
-        l = age_lp[0] + hiss; r = age_lp[1] + hiss;
-    }
-    *pl = l; *pr = r;
+    if (tape_on) tape_write = (uint8_t)(tape_write + N);
+    if (hiss) /* tape hiss on the dry signal only */
+        for (unsigned j = 0; j < N; ++j) {
+            hiss_seed = hiss_seed * 1664525U + 1013904223U;
+            int32_t h = (((int32_t)(hiss_seed >> 17) - 16384) * hiss) >> 15;
+            bus_dry[2 * j] += h; bus_dry[2 * j + 1] += h;
+        }
 }
 
 /* Keys played live (VESPER play mode): queued by the control task, started by
@@ -1165,7 +1174,8 @@ LUSH_CODE void lush_render(int32_t *output)
     delay_now += (uint32_t)((int32_t)(delay_q16 - delay_now) >> 5);
     uint32_t dtime = delay_now, dtime_r = (uint32_t)(((uint64_t)dtime * 4U) / 3U);
     if (dtime_r > ((uint32_t)(DELAY_LEN - 2) << 16)) dtime_r = (uint32_t)(((uint64_t)dtime * 2U) / 3U);
-    const int32_t master_on = fx_master_on, chorus_mix = fx_chorus; /* read once per block */
+    pre_fx(); /* DIRT and TAPE first, on every bus */
+    const int32_t width = fx_width, chorus_mix = fx_chorus; /* read once per block */
     for (unsigned j = 0; j < N; ++j) {
         /* chorus */
         int32_t mono = bus_chorus[j];
@@ -1211,7 +1221,10 @@ LUSH_CODE void lush_render(int32_t *output)
         int32_t rr = half ? rev_out[1] : (rev_prev[1] + rev_out[1]) >> 1;
         l += ((dl + ((rl * 9) >> 3)) * wet) >> 15;
         r += ((dr + ((rr * 9) >> 3)) * wet) >> 15;
-        if (master_on) master(&l, &r);
+        if (width != 32768) { /* CLOUD width, last in the chain */
+            int32_t m = (l + r) >> 1, side = (int32_t)(((int64_t)((l - r) >> 1) * width) >> 15);
+            l = m + side; r = m - side;
+        }
         /* -1 dB bus trim keeps the limiter for rare peaks only. */
         output[2 * j] += soft_limit(dc_block(0, analog(0, (l * 29200) >> 15))) << 8;
         output[2 * j + 1] += soft_limit(dc_block(1, analog(1, (r * 29200) >> 15))) << 8;
