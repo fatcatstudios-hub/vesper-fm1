@@ -1,0 +1,80 @@
+diff --git a/app/lush.c b/app/lush.c
+index ad79d93..9f7ae1e 100644
+--- a/app/lush.c
++++ b/app/lush.c
+@@ -1014,8 +1014,10 @@ static inline LUSH_HOT int32_t soft_limit(int32_t x)
+     return x < 0 ? -over : over;
+ }
+ 
++extern volatile unsigned vesper_safe_mode;
+ LUSH_CODE void lush_render(int32_t *output)
+ {
++    if (vesper_safe_mode) return; /* safe boot: engine audio only */
+     unsigned any = 0;
+     for (unsigned t = 0; t < TRACKS; ++t) {
+         if (layer[t].applied != layer[t].patch) {
+diff --git a/app/screen.c b/app/screen.c
+index 400eaa0..3a8938a 100644
+--- a/app/screen.c
++++ b/app/screen.c
+@@ -2,6 +2,15 @@
+ #include "instrument.h"
+ #include "fm_patch.h"
+ #include "version.h"
++#ifndef VESPER_TEST
++#define VESPER_TEST 0
++#endif
++/* A TEST build (spare unit only) says so on its boot screen. */
++#if VESPER_TEST
++#define SHOWN_VERSION WORSHIP_VERSION " TEST"
++#else
++#define SHOWN_VERSION WORSHIP_VERSION
++#endif
+ #include "fm1_engine_control.h"
+ #include "lush.h"
+ /* WORSHIP_SLIM: leave out stock pages the worship build replaces (Bluetooth
+@@ -242,7 +251,8 @@ static uint32_t edit_ms;
+ static unsigned seq_down;
+ static uint32_t seq_ms;
+ static unsigned arp_down, arp_long;
+-static unsigned v_edit, v_filter_env, play_mode; /* VESPER page state; ARP = play mode */
++static unsigned v_edit, v_filter_env, play_mode;
++volatile unsigned vesper_safe_mode; /* set by the HOME + PLAY power-on gesture */ /* VESPER page state; ARP = play mode */
+ static uint32_t arp_ms;
+ static char project_stored[13];
+ static int project_stored_result;
+@@ -1471,7 +1481,7 @@ static __attribute__((noinline, cold, minsize)) void boot_draw(void)
+             text(LEFT + STEP * k, 176, one, 3, k + 1U == letters && letters < LEN ? ACCENT : TEXT, BACK);
+         }
+         if (letters == LEN)
+-            text((240 - 6 * (sizeof WORSHIP_VERSION - 1)) / 2, 202, WORSHIP_VERSION, 1, ACCENT, BACK);
++            text((240 - 6 * (sizeof SHOWN_VERSION - 1)) / 2, 202, SHOWN_VERSION, 1, VESPER_TEST ? AMBER : ACCENT, BACK);
+         cache->hint_cache = letters;
+     }
+ }
+@@ -2165,8 +2175,17 @@ void groove_screen_init(void)
+     memset(encoder_direction, 0, sizeof encoder_direction);
+     memset(encoder_speed, 0, sizeof encoder_speed);
+     fm1_controls_init();
++    /* VESPER SAFE BOOT: hold HOME + PLAY while switching on. Nothing of
++     * VESPER's screen or sound code runs, so a bad build can always be
++     * replaced from the updater page. Bounded by count, never by time. */
++    for (unsigned i = 0; i < 20000U && !vesper_safe_mode; ++i) {
++        struct fm1_controls held;
++        fm1_controls_read(&held);
++        if ((held.buttons & (BUTTON(HOME) | BUTTON(PLAY))) == (BUTTON(HOME) | BUTTON(PLAY))) vesper_safe_mode = 1;
++    }
+     for (unsigned key = 0; key < 41; ++key) fm1_led_set(key, 0);
+     fm1_screen_init();
++    if (vesper_safe_mode) { fm1_led_set(HOME, 1); fm1_led_set(PLAY, 1); return; }
+     boot_started = fm1_millis();
+     boot_active = boot_waiting = 1;
+     struct fm1_ble_status ble = {0};
+@@ -3006,6 +3025,7 @@ controls_done:
+ 
+ void groove_screen_control(void)
+ {
++    if (vesper_safe_mode) return;
+     worship_poll();
+     struct fm1_controls controls;
+     fm1_controls_read(&controls);

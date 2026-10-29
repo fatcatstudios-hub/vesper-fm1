@@ -1,0 +1,12 @@
+{
+ "heap": 116460,
+ "code": {
+  "app/screen.c:^static void paint_flush\\(void\\)": "e3119877c2866b21",
+  "app/screen.c:^void groove_screen_init\\(void\\)": "395230438e337e3c",
+  "app/screen.c:^static __attribute__\\(\\(noinline\\)\\) void paint_fill\\(": "7e21bfe763f2ea0b",
+  "app/screen.c:^static void paint_mark\\(": "d7f290d9f1100a9a",
+  "app/audio_output.c:^FM1_AUDIO_CODE void fm1_output_mix\\(": "947abc76cff244d6",
+  "app/board/panel.c:None": "fc28e5d73dc513bc",
+  "app/screen.c:^static uint16_t paint_pixels\\[.*$": "38c5dc63fc6646ee"
+ }
+}

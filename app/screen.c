@@ -2,6 +2,15 @@
 #include "instrument.h"
 #include "fm_patch.h"
 #include "version.h"
+#ifndef VESPER_TEST
+#define VESPER_TEST 0
+#endif
+/* A TEST build (spare unit only) says so on its boot screen. */
+#if VESPER_TEST
+#define SHOWN_VERSION WORSHIP_VERSION " TEST"
+#else
+#define SHOWN_VERSION WORSHIP_VERSION
+#endif
 #include "fm1_engine_control.h"
 #include "lush.h"
 /* WORSHIP_SLIM: leave out stock pages the worship build replaces (Bluetooth
@@ -1471,7 +1480,7 @@ static __attribute__((noinline, cold, minsize)) void boot_draw(void)
             text(LEFT + STEP * k, 176, one, 3, k + 1U == letters && letters < LEN ? ACCENT : TEXT, BACK);
         }
         if (letters == LEN)
-            text((240 - 6 * (sizeof WORSHIP_VERSION - 1)) / 2, 202, WORSHIP_VERSION, 1, ACCENT, BACK);
+            text((240 - 6 * (sizeof SHOWN_VERSION - 1)) / 2, 202, SHOWN_VERSION, 1, VESPER_TEST ? AMBER : ACCENT, BACK);
         cache->hint_cache = letters;
     }
 }
@@ -1655,17 +1664,17 @@ static void vesper_controls(const struct fm1_controls *controls)
     }
 }
 /* Audio tap from the output stage: last 256 mono samples at 22 kHz. */
-extern int16_t vesper_scope[512];
-extern volatile uint16_t vesper_scope_at;
+extern int16_t vesper_scope[256];
+extern volatile uint8_t vesper_scope_at;
 static void vesper_scope_frame(void)
 {
     /* A new trace only once the last one is fully on the glass: no torn frames. */
     for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) return;
     unsigned at = vesper_scope_at;
-#define s(i) vesper_scope[(at + (i)) & 511U]
+#define s(i) vesper_scope[(at + (i)) & 255U]
     unsigned start = 0, peak = 1;
     /* Trigger on a rising zero crossing after a clear dip, like a hardware scope. */
-    for (unsigned i = 8; i < 288; ++i)
+    for (unsigned i = 8; i < 32; ++i)
         if (s(i - 1) < 0 && s(i) >= 0 && s(i - 6) < -200) { start = i; break; }
     for (unsigned i = 0; i < 224; ++i) { unsigned m = (unsigned)(s(start + i) < 0 ? -s(start + i) : s(start + i)); if (m > peak) peak = m; }
     static unsigned gain_peak = 4000;

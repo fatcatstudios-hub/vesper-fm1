@@ -17,8 +17,8 @@ static inline __attribute__((always_inline)) int32_t limit(int64_t value)
         return value < 0 ? -8388608 : 8388607;
     return (int32_t)value;
 }
-int16_t vesper_scope[512];
-volatile uint16_t vesper_scope_at;
+int16_t vesper_scope[256];
+volatile uint8_t vesper_scope_at;
 FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
 {
     if (!output) return;
@@ -65,7 +65,7 @@ FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
     }
     /* VESPER scope tap: every other frame, mono, 16-bit. */
     for (unsigned i = 0; i < FM1_BLOCK_FRAMES / 2U; ++i)
-        vesper_scope[(vesper_scope_at + i) & 511U] = (int16_t)((output[4 * i] + output[4 * i + 1]) >> 9);
-    vesper_scope_at = (uint16_t)((vesper_scope_at + FM1_BLOCK_FRAMES / 2U) & 511U);
+        vesper_scope[(uint8_t)(vesper_scope_at + i)] = (int16_t)((output[4 * i] + output[4 * i + 1]) >> 9);
+    vesper_scope_at = (uint8_t)(vesper_scope_at + FM1_BLOCK_FRAMES / 2U);
     (void)fm1_usb_audio_write(output, FM1_BLOCK_FRAMES);
 }
