@@ -895,6 +895,21 @@ static inline LUSH_HOT int32_t chorus_tap(uint32_t delay_q16)
     int32_t frac = (int32_t)((read >> 1) & 32767U);
     return chorus_line[i0] + (((chorus_line[i1] - chorus_line[i0]) * frac) >> 15);
 }
+/* CLOUD before SPACE: the delay and reverb sends pass through their own
+ * half-rate chorus lines, swept by the same LFO, so echoes and tails shimmer
+ * with the chorus. 256 samples at 22 kHz covers the ~170-sample sweep. */
+static int16_t send_line[2][256];
+static uint8_t send_write;
+static inline LUSH_HOT int32_t send_chorus(unsigned which, int32_t x, uint32_t delay_q16, int32_t wet)
+{
+    int16_t *line = send_line[which];
+    line[send_write] = (int16_t)clamp15(x);
+    uint32_t read = (((uint32_t)send_write << 16) - delay_q16) & ((256U << 16) - 1U);
+    unsigned i0 = read >> 16, i1 = (i0 + 1U) & 255U;
+    int32_t frac = (int32_t)((read >> 1) & 32767U);
+    int32_t tap = line[i0] + (((line[i1] - line[i0]) * frac) >> 15);
+    return x + (((tap - x) * wet) >> 15);
+}
 
 /* ---- delay: dark, tempo-synced, half rate ---- */
 enum { DELAY_LEN = 24000 }; /* 1.09 s at 22.05 kHz: a quarter note down to 55 BPM */
@@ -1041,7 +1056,7 @@ static inline LUSH_HOT int32_t soft_limit(int32_t x)
     return x < 0 ? -over : over;
 }
 
-/* ---- VESPER master FX, in chain order DIRT -> TAPE -> SPACE -> CLOUD.
+/* ---- VESPER master FX, in chain order DIRT -> TAPE -> CLOUD -> SPACE (CLOUD width last).
  * DIRT (drive, bit crush, sample hold) and TAPE (wow, flutter, saturation,
  * age) run on every bus before the delay, reverb and chorus see it, so echoes
  * and tails repeat the dirt and the wobble. CLOUD's width is last. Each part
@@ -1192,6 +1207,13 @@ LUSH_CODE void lush_render(int32_t *output)
         /* half-rate delay and reverb, linearly interpolated back up */
         if (!(j & 1U)) {
             int32_t in = (bus_delay[j] + bus_delay[j + 1]) >> 1;
+            int32_t rsend = (bus_reverb[j] + bus_reverb[j + 1]) >> 2;
+            if (chorus_mix) { /* CLOUD chorus feeds SPACE; half the sweep at half rate */
+                int32_t send_wet = chorus_mix >> 1; /* 30 % at the scene's setting */
+                in = send_chorus(0, in, (base + (uint32_t)tri * depth) >> 1, send_wet);
+                rsend = send_chorus(1, rsend, (base + (uint32_t)(32767 - tri) * depth) >> 1, send_wet);
+                ++send_write;
+            }
             /* Tape echo: slow wow plus a little flutter bend the repeat time
              * (about +-0.3 %), and each pass is saturated and darkened. */
             tape_wow += 68000U;      /* ~0.35 Hz at 22.05 kHz */
@@ -1210,7 +1232,7 @@ LUSH_CODE void lush_render(int32_t *output)
             if (++delay_write == DELAY_LEN) delay_write = 0;
             delay_prev[0] = delay_out[0]; delay_prev[1] = delay_out[1];
             delay_out[0] = echo; delay_out[1] = echo_r;
-            int32_t rin = ((bus_reverb[j] + bus_reverb[j + 1]) >> 2) + ((mix * 6000) >> 15);
+            int32_t rin = rsend + ((mix * 6000) >> 15);
             rev_prev[0] = rev_out[0]; rev_prev[1] = rev_out[1];
             reverb_sample(rin, rev_out);
         }
