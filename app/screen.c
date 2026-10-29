@@ -615,12 +615,12 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
     unsigned hold = !paint_rendering && backlog > 3;
     for (unsigned t = 0; t < LAYERS_SHOWN; ++t) {
         /* The rings: this layer's 16 steps around the circle. */
-        unsigned page = v[t].playing ? v[t].play_step / 16U * 16U : t == track ? first : 0U;
+        unsigned page = !v[t].playing && t == track ? first : 0U; /* rings hold their first 16 steps */
         for (unsigned i = 0; i < 16 && !hold; ++i) {
             unsigned step = page + i;
             unsigned enabled = step < v[t].sequence_length;
             unsigned on = enabled && (unsigned)((v[t].active_steps >> step) & 1U);
-            unsigned head = v[t].playing && v[t].play_step == step; /* every ring, every 16th */
+            unsigned head = v[t].playing && t == track && v[t].play_step % 16U == i; /* selected ring, every 16th */
             unsigned selected = enabled && t == track && step == cursor && !v[t].playing;
             uint32_t sig = on | (head << 1) | (selected << 2) | ((uint32_t)v[t].audible << 3) | (enabled << 4);
             if (sig == cache->cell_cache[t][i]) continue;
