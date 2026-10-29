@@ -506,18 +506,46 @@ static void overload_guard(void)
  * PSG whose preset data beyond its four parameters is otherwise unused. */
 static uint8_t pending[LAYERS][LUSH_VOICE_BYTES], pending_ok, loads, loads_seen = 0xff;
 static int8_t voice_scene = -2;
+/* Global FX (0.8): shimmer, tone, width, chorus | wow, flutter, saturate, age |
+ * drive, bits, rate, mix. Saved after the first layer's voice blob as 'X', 1, values. */
+enum { FX_AT = 4 + LUSH_VOICE_BYTES };
+static const uint8_t fx_neutral[LUSH_MASTER_PARAMS] = {0, 64, 64, 64, 0, 0, 0, 0, 0, 0, 0, 127};
+static uint8_t master_fx[LUSH_MASTER_PARAMS] = {0, 64, 64, 64, 0, 0, 0, 0, 0, 0, 0, 127};
+static uint8_t fx_pending[LUSH_MASTER_PARAMS], fx_pending_ok;
+unsigned vesper_fx_get(unsigned i) { return i < LUSH_MASTER_PARAMS ? master_fx[i] : 0U; }
+void vesper_fx_edit(unsigned i, int delta)
+{
+    if (i >= LUSH_MASTER_PARAMS || !delta) return;
+    int v = (int)master_fx[i] + delta;
+    master_fx[i] = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+    lush_master(master_fx);
+    groove_project_touch();
+}
 void vesper_project_store(struct groove_project *p)
 {
+    unsigned fx_saved = 0;
     for (unsigned t = 0; t < LAYERS; ++t)
-        if (p->preset[t].type == GROOVE_PSG) (void)lush_voice_export(t, p->preset[t].data + 4);
+        if (p->preset[t].type == GROOVE_PSG) {
+            (void)lush_voice_export(t, p->preset[t].data + 4);
+            if (!fx_saved) {
+                uint8_t *at = p->preset[t].data + FX_AT;
+                at[0] = 'X'; at[1] = 1; memcpy(at + 2, master_fx, LUSH_MASTER_PARAMS);
+                fx_saved = 1;
+            }
+        }
 }
 void vesper_project_loading(const struct groove_project *p)
 {
-    pending_ok = 0; ++loads;
+    pending_ok = 0; fx_pending_ok = 0; ++loads;
     for (unsigned t = 0; p && t < LAYERS; ++t)
         if (p->preset[t].type == GROOVE_PSG && p->preset[t].data[4] == 'V') {
             memcpy(pending[t], p->preset[t].data + 4, LUSH_VOICE_BYTES);
             pending_ok |= (uint8_t)(1U << t);
+            const uint8_t *at = p->preset[t].data + FX_AT;
+            if (!fx_pending_ok && at[0] == 'X' && at[1] == 1) {
+                for (unsigned i = 0; i < LUSH_MASTER_PARAMS; ++i) fx_pending[i] = at[2 + i] > 127 ? 127 : at[2 + i];
+                fx_pending_ok = 1;
+            }
         }
 }
 void worship_poll(void)
@@ -533,6 +561,14 @@ void worship_poll(void)
                 lush_voice_set(t, scenes[scene].lush[t]);
         }
         pending_ok = 0;
+        /* Global FX: the project's, else neutral with the scene's shimmer. */
+        if (fx_pending_ok) memcpy(master_fx, fx_pending, sizeof master_fx);
+        else {
+            memcpy(master_fx, fx_neutral, sizeof master_fx);
+            master_fx[0] = scene >= 0 ? scenes[scene].shimmer : 0;
+        }
+        fx_pending_ok = 0;
+        lush_master(master_fx);
     }
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
         unsigned patch = scene >= 0 && t < LAYERS ? scenes[scene].lush[t] : LUSH_NONE;
@@ -547,5 +583,5 @@ void worship_poll(void)
     struct groove_view view;
     groove_get_view(0, 0, &view);
     groove_effects_get(fx);
-    lush_effects(fx, groove_delay_ticks(), view.tempo, scene >= 0 ? scenes[scene].shimmer : 0);
+    lush_effects(fx, groove_delay_ticks(), view.tempo, master_fx[0]);
 }

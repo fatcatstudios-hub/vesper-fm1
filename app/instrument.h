@@ -207,6 +207,8 @@ int groove_project_capture(struct groove_project *p);
 int groove_project_valid(const struct groove_project *p);
 /* VESPER: carry LUSH voice edits inside saved / loaded projects. NULL = factory scene. */
 void vesper_project_store(struct groove_project *p);
+unsigned vesper_fx_get(unsigned i);      /* VESPER global FX 0..11, 0..127 */
+void vesper_fx_edit(unsigned i, int delta);
 void vesper_project_loading(const struct groove_project *p);
 int groove_project_apply(const struct groove_project *p);
 /* Open engine: checkpoint only after allocation succeeds, before applying.

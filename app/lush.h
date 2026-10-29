@@ -36,6 +36,10 @@ void lush_layer(unsigned track, unsigned patch, unsigned volume, unsigned reverb
 /* Control task. fx: reverb decay, delay byte, feedback, return level (0..127),
  * delay_ticks: applied delay time at 44.1 kHz / 8 (groove_delay_ticks()). */
 void lush_effects(const uint8_t fx[4], unsigned delay_ticks, unsigned tempo, unsigned shimmer);
+/* VESPER master FX (control task): shimmer, tone, width, chorus | wow, flutter,
+ * saturate, age | drive, bits, rate, mix; 0..127, 64 neutral for tone/width/chorus. */
+enum { LUSH_MASTER_PARAMS = 12 };
+void lush_master(const uint8_t v[LUSH_MASTER_PARAMS]);
 const char *lush_patch_name(unsigned patch);
 const char *lush_track_name(unsigned track);
 unsigned lush_track_level(unsigned track);   /* 0..127, live */

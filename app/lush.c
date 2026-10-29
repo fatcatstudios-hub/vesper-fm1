@@ -130,6 +130,11 @@ static volatile int32_t fx_decay = 26000, fx_feedback = 12000, fx_wet = 20000, f
 static volatile uint32_t delay_q16 = 11025U << 16; /* half-rate samples, Q16 */
 static volatile uint32_t beat_inc = 0;    /* per-sample step of a 16-beat (4-bar) phase */
 static volatile int32_t fx_shimmer = 0;   /* Q15 */
+/* VESPER master FX (0.8), set by lush_master(): CLOUD, TAPE and DIRT pages. */
+static volatile int32_t fx_tone = 0, fx_width = 32768, fx_chorus = 19661;
+static volatile int32_t fx_wow = 0, fx_flutter = 0, fx_sat = 0, fx_age = 32767, fx_hiss = 0;
+static volatile int32_t fx_drive = 0, fx_crush = 0, fx_hold = 1, fx_dirt_mix = 32767;
+static volatile int32_t fx_master_on = 0, fx_drive_gain = 256, fx_drive_comp = 32767, fx_sat_comp = 32767; /* gain Q8, make-up Q15 */
 static uint32_t beat_phase;
 
 /* The LUSH sound on a track, or NULL when the track plays the FM1 engine. */
@@ -238,6 +243,27 @@ __attribute__((minsize)) int lush_voice_import(unsigned track, const uint8_t *in
     layer[track].patch = in[2];
     return 0;
 }
+/* VESPER master FX. v: shimmer, tone, width, chorus | wow, flutter, saturate,
+ * age | drive, bits, rate, mix; each 0..127 (64 = neutral for tone, width, chorus). */
+__attribute__((minsize)) void lush_master(const uint8_t v[LUSH_MASTER_PARAMS])
+{
+    fx_tone = ((int32_t)64 - v[1]) * 120;               /* + darker, - brighter */
+    fx_width = (int32_t)v[2] * 512;                     /* 64 -> 1.0, 127 -> ~2.0 */
+    fx_chorus = (int32_t)v[3] * 307;                    /* 64 -> today's mix */
+    fx_wow = (int32_t)v[4] * 180;                       /* up to ~89 samples of slow drift (Q8), ~0.5 % pitch */
+    fx_flutter = (int32_t)v[5] * 4;                     /* up to ~2 samples of fast shake (Q8) */
+    fx_sat = (int32_t)v[6] * 4;                         /* drive into the tape curve */
+    fx_age = 32767 - (int32_t)v[7] * 220;               /* darker as it ages */
+    fx_hiss = (int32_t)v[7] * v[7] / 64;                /* and a little hiss */
+    fx_drive = (int32_t)v[8] * 12;                      /* pre-gain into the clipper */
+    fx_drive_gain = 256 + fx_drive * 2;                 /* 1x .. ~13x, Q8 */
+    fx_drive_comp = (int32_t)((32767L * 256) / (256 + fx_drive)); /* hold the level as it clips */
+    fx_sat_comp = (int32_t)((32767L * 256) / (256 + fx_sat * 3 / 4));
+    fx_crush = v[9] ? 1 + (int32_t)v[9] * 11 / 127 : 0; /* bits removed: 1..12 */
+    fx_hold = 1 + (int32_t)v[10] * 15 / 127;            /* sample-and-hold length */
+    fx_dirt_mix = (int32_t)v[11] * 258;
+    fx_master_on = v[2] != 64 || v[4] || v[5] || v[6] || v[7] || v[8] || v[9] || fx_hold > 1;
+}
 __attribute__((minsize)) void lush_effects(const uint8_t fx[4], unsigned delay_ticks, unsigned tempo, unsigned shimmer)
 {
     lush_tables_build();
@@ -245,7 +271,9 @@ __attribute__((minsize)) void lush_effects(const uint8_t fx[4], unsigned delay_t
         beat_inc = (uint32_t)(((uint64_t)tempo << 32) / (60ULL * 44100ULL * 16ULL));
     fx_shimmer = (int32_t)(shimmer > 127 ? 127 : shimmer) * 150;   /* 0 .. 0.58 */
     fx_decay = 15000 + (int32_t)fx[0] * 121;   /* 0.46 .. 0.93 */
-    fx_damp = 13000 - (int32_t)fx[0] * 40;     /* longer tails are a touch brighter */
+    fx_damp = 13000 - (int32_t)fx[0] * 40 + fx_tone; /* longer tails are a touch brighter; CLOUD TONE darkens */
+    if (fx_damp < 0) fx_damp = 0;
+    if (fx_damp > 30000) fx_damp = 30000;
     fx_feedback = (int32_t)fx[2] * 214;        /* 0 .. 0.83 */
     fx_wet = (int32_t)fx[3] * 240;             /* 0 .. 0.93 */
     uint32_t half = delay_ticks * 4U;          /* 44.1k/8 ticks -> 22.05k samples */
@@ -857,7 +885,7 @@ static LUSH_CODE void render_voice(struct voice *v)
 }
 
 /* ---- chorus: Juno-style, mono in, stereo out ---- */
-enum { CHORUS_LEN = 2048 };
+enum { CHORUS_LEN = 512 }; /* the sweep reads at most ~340 samples back */
 static int16_t chorus_line[CHORUS_LEN];
 static unsigned chorus_write;
 static uint32_t chorus_lfo;
@@ -1014,6 +1042,64 @@ static inline LUSH_HOT int32_t soft_limit(int32_t x)
     return x < 0 ? -over : over;
 }
 
+/* ---- VESPER master FX: width, DIRT (drive, bit crush, sample hold), TAPE
+ * (wow, flutter, saturation, age). Everything is skipped at its neutral value. */
+static int16_t tape_line[2][256];
+static uint8_t tape_write;
+static uint32_t wow_phase, flutter_phase, hiss_seed = 1;
+static int32_t age_lp[2], hold_l, hold_r, hold_count;
+static inline LUSH_HOT int32_t soft_clip(int32_t x)
+{   /* 1.5x - 0.5x^3 inside +-1 (Q15), flat outside */
+    x = clamp15(x);
+    int32_t x2 = (x * x) >> 15;
+    return (3 * x - ((x2 * x) >> 15)) >> 1;
+}
+static inline LUSH_HOT void master(int32_t *pl, int32_t *pr)
+{
+    int32_t l = *pl, r = *pr;
+    if (fx_width != 32768) {
+        int32_t m = (l + r) >> 1, side = (int32_t)(((int64_t)((l - r) >> 1) * fx_width) >> 15);
+        l = m + side; r = m - side;
+    }
+    if (fx_drive || fx_crush || fx_hold > 1) {
+        int32_t dl = l, dr = r;
+        if (fx_drive) {
+            int32_t g = fx_drive_gain, c = fx_drive_comp;
+            dl = (soft_clip((dl * g) >> 8) * c) >> 15; dr = (soft_clip((dr * g) >> 8) * c) >> 15;
+        }
+        if (fx_crush) { dl = (clamp15(dl) >> fx_crush) << fx_crush; dr = (clamp15(dr) >> fx_crush) << fx_crush; }
+        if (fx_hold > 1) {
+            if (++hold_count >= fx_hold) { hold_count = 0; hold_l = dl; hold_r = dr; }
+            dl = hold_l; dr = hold_r;
+        }
+        l += (((dl - l) * fx_dirt_mix) >> 15); r += (((dr - r) * fx_dirt_mix) >> 15);
+    }
+    if (fx_wow || fx_flutter) {
+        tape_line[0][tape_write] = (int16_t)clamp15(l);
+        tape_line[1][tape_write] = (int16_t)clamp15(r);
+        wow_phase += 39000U;          /* ~0.4 Hz at 44.1 kHz */
+        flutter_phase += 640000U;     /* ~6.6 Hz */
+        int32_t back = (128 << 8) + ((sine15(wow_phase) * fx_wow) >> 15) + ((sine15(flutter_phase) * fx_flutter) >> 15); /* Q8 */
+        unsigned whole = (unsigned)back >> 8, frac = (unsigned)back & 255U;
+        uint8_t i0 = (uint8_t)(tape_write - whole), i1 = (uint8_t)(i0 - 1U);
+        l = tape_line[0][i0] + (((tape_line[0][i1] - tape_line[0][i0]) * (int32_t)frac) >> 8);
+        r = tape_line[1][i0] + (((tape_line[1][i1] - tape_line[1][i0]) * (int32_t)frac) >> 8);
+        ++tape_write;
+    }
+    if (fx_sat) {
+        int32_t g = 256 + fx_sat;
+        int32_t c = fx_sat_comp;
+        l = (soft_clip((l * g) >> 8) * c) >> 15; r = (soft_clip((r * g) >> 8) * c) >> 15;
+    }
+    if (fx_age < 32767) {
+        age_lp[0] += ((l - age_lp[0]) * fx_age) >> 15; age_lp[1] += ((r - age_lp[1]) * fx_age) >> 15;
+        hiss_seed = hiss_seed * 1664525U + 1013904223U;
+        int32_t hiss = (((int32_t)(hiss_seed >> 17) - 16384) * fx_hiss) >> 15;
+        l = age_lp[0] + hiss; r = age_lp[1] + hiss;
+    }
+    *pl = l; *pr = r;
+}
+
 /* Keys played live (VESPER play mode): queued by the control task, started by
  * the audio context at the top of the next block, so voices only ever change
  * in one context. */
@@ -1079,6 +1165,7 @@ LUSH_CODE void lush_render(int32_t *output)
     delay_now += (uint32_t)((int32_t)(delay_q16 - delay_now) >> 5);
     uint32_t dtime = delay_now, dtime_r = (uint32_t)(((uint64_t)dtime * 4U) / 3U);
     if (dtime_r > ((uint32_t)(DELAY_LEN - 2) << 16)) dtime_r = (uint32_t)(((uint64_t)dtime * 2U) / 3U);
+    const int32_t master_on = fx_master_on, chorus_mix = fx_chorus; /* read once per block */
     for (unsigned j = 0; j < N; ++j) {
         /* chorus */
         int32_t mono = bus_chorus[j];
@@ -1090,8 +1177,8 @@ LUSH_CODE void lush_render(int32_t *output)
         int32_t cr = chorus_tap(base + (uint32_t)(32767 - tri) * depth);
         chorus_write = (chorus_write + 1U) & (CHORUS_LEN - 1U);
         /* dry centre plus two counter-swept copies, Juno style */
-        int32_t l = bus_dry[2 * j] + (((mono + 2 * cl) * 19661) >> 15);
-        int32_t r = bus_dry[2 * j + 1] + (((mono + 2 * cr) * 19661) >> 15);
+        int32_t l = bus_dry[2 * j] + (((mono + 2 * cl) * chorus_mix) >> 15);
+        int32_t r = bus_dry[2 * j + 1] + (((mono + 2 * cr) * chorus_mix) >> 15);
         /* half-rate delay and reverb, linearly interpolated back up */
         if (!(j & 1U)) {
             int32_t in = (bus_delay[j] + bus_delay[j + 1]) >> 1;
@@ -1124,6 +1211,7 @@ LUSH_CODE void lush_render(int32_t *output)
         int32_t rr = half ? rev_out[1] : (rev_prev[1] + rev_out[1]) >> 1;
         l += ((dl + ((rl * 9) >> 3)) * wet) >> 15;
         r += ((dr + ((rr * 9) >> 3)) * wet) >> 15;
+        if (master_on) master(&l, &r);
         /* -1 dB bus trim keeps the limiter for rare peaks only. */
         output[2 * j] += soft_limit(dc_block(0, analog(0, (l * 29200) >> 15))) << 8;
         output[2 * j + 1] += soft_limit(dc_block(1, analog(1, (r * 29200) >> 15))) << 8;
