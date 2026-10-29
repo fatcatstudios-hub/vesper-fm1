@@ -1,5 +1,5 @@
 {
- "heap": 116460,
+ "heap": 116652,
  "code": {
   "app/screen.c:^static void paint_flush\\(void\\)": "e3119877c2866b21",
   "app/screen.c:^void groove_screen_init\\(void\\)": "395230438e337e3c",
