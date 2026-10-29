@@ -274,6 +274,12 @@ static struct draw_cache saved_cache, band_cache, *cache = &saved_cache;
 static uint32_t led_cache;
 static uint16_t button_led_cache;
 static struct groove_view frame_views[GROOVE_TRACKS];
+
+static __attribute__((noinline)) const char *sound_name(unsigned t)
+{
+    const char *lush = lush_track_name(t);
+    return lush ? lush : source_names[frame_views[t].type];
+}
 static uint8_t frame_step_notes[16], frame_effects[4];
 static uint8_t frame_patch[156];
 static struct groove_fm_controls frame_controls;
@@ -524,94 +530,89 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
              : groove_arp_enabled(track) ? "ARP" : "LIVE", 1, writing ? BACK : TEXT, color);
     }
 }
+/* HOME, worship edition: the crystal orbit. The four layers are concentric
+ * rings of crystal diamonds, one per step of the current 16-step page; the
+ * playhead sweeps them like a clock hand. The held chord floats in the centre,
+ * and a side panel names the scene and the four sounds with live level bars. */
+enum { LAYERS_SHOWN = 4, ORBIT_X = 80, ORBIT_Y = 112 };
+static const int8_t orbit_sin[16] = {0, 24, 45, 59, 64, 59, 45, 24, 0, -24, -45, -59, -64, -59, -45, -24};
+static const uint8_t orbit_radius[LAYERS_SHOWN] = {74, 59, 44, 29};
+static void diamond(int cx, int cy, int r, uint16_t color)
+{
+    for (int dy = -r; dy <= r; ++dy) {
+        int half = r - (dy < 0 ? -dy : dy);
+        paint_fill((unsigned)(cx - half), (unsigned)(cy + dy), (unsigned)(2 * half + 1), 1, color);
+    }
+}
 static __attribute__((noinline)) void overview(const struct groove_view v[8])
 {
     if (paint_rendering && (paint_top >= 190 || paint_top + PAINT_ROWS <= 32)) return;
     unsigned first = step_first(&v[track]);
-    char project_name[13]; groove_project_name(project_name);
-    uint32_t title = signature(first / 16 | (step_follow << 3) | (cursor << 4) |
-        ((unsigned)v[track].sequence_length << 10), project_name, 12);
+    char scene[13]; groove_project_name(scene);
+    const char *root = worship_chord_root(), *quality = worship_chord_quality();
+    uint32_t title = signature(signature(first, scene, 12), root ? root : "", 2) ^ (uint32_t)(uintptr_t)quality;
     if (title != cache->title_cache) {
         cache->title_cache = title;
-        paint_fill(0, 32, 240, 13, BACK);
-        text(8, 35, project_name, 1, ACCENT, BACK);
-        text(86, 35, "OPEN " FM1_RELEASE_VERSION, 1, DIM, BACK);
-        text(146, 35, step_follow ? "PAGE" : "STEP", 1, DIM, BACK);
-        number(178, 35, step_follow ? first + 1 : cursor + 1, 2, 1, TEXT, BACK);
-        text(190, 35, step_follow ? "-" : "/", 1, DIM, BACK);
-        number(196, 35, step_follow ? first + 16 : v[track].sequence_length, 2, 1, TEXT, BACK);
-    }
-    static const char *const chip_names[] = {"PSG YM", "PSG AY", "PSG NOIS", "PSG MIX"};
-    for (unsigned t = 0; t < 8; ++t) {
-        unsigned y = 48 + 18 * t;
-        if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 16 <= paint_top)) continue;
-        uint32_t meta = v[t].program | ((uint32_t)v[t].volume << 7) | ((t == track) << 14) |
-                        ((uint32_t)v[t].modified << 15) | ((uint32_t)v[t].muted << 16) |
-                        ((uint32_t)v[t].solo << 17) | ((uint32_t)v[t].ready << 18) |
-                        ((uint32_t)v[t].type << 19) | ((uint32_t)midi_active[t] << 22) |
-                        ((uint32_t)groove_track_role(t) << 23);
-        const char *lush = lush_track_name(t);
-        meta ^= (uint32_t)(uintptr_t)lush << 7; /* a scene change swaps the sound name */
-        if (meta != cache->row_cache[t]) {
-            cache->row_cache[t] = meta;
-            paint_fill(5, y, 71, 16, BACK);
-            uint16_t bg = t == track ? colors[t] : PANEL;
-            paint_fill(6, y, 18, 16, bg);
-            number(12, y + 5, t + 1, 1, 1, t == track ? BACK : colors[t], bg);
-            paint_fill(7, y + 12, 3, 3, midi_active[t] ? GREEN : bg);
-            char fm_name[8]={0}; uint8_t patch[156];
-            if (v[t].type==GROOVE_DX7 && !groove_fm_copy(t,patch,NULL)) memcpy(fm_name,patch+145,7);
-            /* LUSH sounds print as two words: "HALO" over "PLUCK". */
-            char word[9] = {0}; const char *rest = "";
-            if (lush) {
-                unsigned n = 0;
-                while (lush[n] && lush[n] != ' ' && n < 8) { word[n] = lush[n]; ++n; }
-                rest = lush[n] == ' ' ? lush + n + 1 : "";
-            }
-            text(29, y + 1,
-                 lush                         ? word
-                 : !v[t].ready                  ? "ERROR"
-                 : v[t].type == GROOVE_DX7    ? fm_name
-                 : v[t].type == GROOVE_303    ? (v[t].program ? "303 SQR" : "303 SAW")
-                 : v[t].type == GROOVE_PSG    ? chip_names[v[t].program & 3U]
-                 : v[t].type == GROOVE_PLUCK  ? "PLUCK"
-                 : v[t].type == GROOVE_SAMPLE ? "SAMPLER"
-                                              : "808 KIT",
-                 1, colors[t], BACK);
-            text(29, y + 9,
-                 groove_track_role(t) == GROOVE_TRACK_OFF ? "OFF"
-                 : groove_track_role(t) == GROOVE_TRACK_PLAY ? (v[t].muted ? "P MUT" : v[t].solo ? "P SOLO" : "PLAY")
-                 : v[t].muted      ? "MUTE"
-                 : v[t].solo     ? "SOLO"
-                 : lush          ? rest
-                 : v[t].modified ? "EDITED"
-                                 : "",
-                 1, DIM, BACK);
-            number(214, y + 1, v[t].volume, 3, 1, t == track ? TEXT : DIM, BACK);
+        paint_fill(ORBIT_X - 24, ORBIT_Y - 16, 49, 33, BACK);   /* inside the inner ring */
+        paint_fill(158, 32, 82, 12, BACK);
+        text(160, 34, scene, 1, ACCENT, BACK);
+        if (root) {
+            unsigned w = (unsigned)strlen(root) * 18U;
+            text(ORBIT_X - w / 2U, ORBIT_Y - 14, root, 3, TEXT, BACK);
+            text(ORBIT_X - (unsigned)strlen(quality) * 3U, ORBIT_Y + 9, quality, 1, DIM, BACK);
+        } else {
+            number(ORBIT_X - 12, ORBIT_Y - 7, (int)first + 1, 2, 2, TEXT, BACK); /* page start */
         }
+    }
+    for (unsigned t = 0; t < LAYERS_SHOWN; ++t) {
+        /* The rings: this layer's 16 steps around the circle. */
+        unsigned page = v[t].playing ? v[t].play_step / 16U * 16U : t == track ? first : 0U;
         for (unsigned i = 0; i < 16; ++i) {
-            unsigned step = first + i;
+            unsigned step = page + i;
             unsigned enabled = step < v[t].sequence_length;
             unsigned on = enabled && (unsigned)((v[t].active_steps >> step) & 1U);
             unsigned head = v[t].playing && v[t].play_step == step;
-            unsigned selected = enabled && t == track && step == cursor;
+            unsigned selected = enabled && t == track && step == cursor && !v[t].playing;
             uint32_t sig = on | (head << 1) | (selected << 2) | ((uint32_t)v[t].audible << 3) | (enabled << 4);
-            if (sig == cache->cell_cache[t][i])
-                continue;
+            if (sig == cache->cell_cache[t][i]) continue;
             cache->cell_cache[t][i] = sig;
-            unsigned x = 80 + i * 8;
-            paint_fill(x, y + 3, 6, 11, selected ? TEXT : BACK);
-            paint_fill(x + 1, y + 5, 4, 8, on ? (v[t].audible ? colors[t] : DIM) : enabled ? PANEL : BACK);
-            if (head)
-                paint_fill(x, y + 3, 6, 2, GREEN);
+            int r = orbit_radius[t], size = t < 2 ? 3 : 2;
+            int x = ORBIT_X + (orbit_sin[i] * r) / 64, y = ORBIT_Y - (orbit_sin[(i + 4) & 15] * r) / 64;
+            paint_fill((unsigned)(x - size - 1), (unsigned)(y - size - 1), (unsigned)(2 * size + 3), (unsigned)(2 * size + 3), BACK);
+            if (!enabled) continue;
+            uint16_t c = head ? (on ? TEXT : ACCENT) : selected ? TEXT
+                       : on ? (v[t].audible ? colors[t] : DIM) : PANEL;
+            diamond(x, y, head && on ? size + 1 : size, c);
         }
-        unsigned meter = v[t].audible ? (v[t].level * 14 + 63) / 127 : 0;
-        unsigned meter_signature = meter | (v[t].level >= 124 ? 16U : 0U);
-        if (meter_signature != cache->meter_cache[t]) {
-            cache->meter_cache[t] = meter_signature;
-            paint_fill(216, y + 11, 14, 3, PANEL);
-            if (meter)
-                paint_fill(216, y + 11, meter, 3, v[t].level >= 124 ? AMBER : colors[t]);
+        /* The side panel: name, state and a live level bar. */
+        unsigned y = 50 + 35 * t;
+        const char *lush = lush_track_name(t);
+        uint32_t meta = v[t].program | ((t == track) << 14) | ((uint32_t)v[t].muted << 16) |
+                        ((uint32_t)v[t].solo << 17) | ((uint32_t)v[t].ready << 18) |
+                        ((uint32_t)v[t].type << 19) | ((uint32_t)midi_active[t] << 22) |
+                        ((uint32_t)groove_track_role(t) << 23);
+        meta ^= (uint32_t)(uintptr_t)lush << 7;
+        if (meta != cache->row_cache[t]) {
+            cache->row_cache[t] = meta;
+            paint_fill(156, y, 84, 20, BACK);
+            const char *name = v[t].ready ? sound_name(t) : "ERROR";
+            char word[13] = {0}; unsigned n = 0;
+            while (name[n] && name[n] != ' ' && n < 12) { word[n] = name[n]; ++n; }
+            const char *rest = name[n] == ' ' ? name + n + 1 : "";
+            const char *state = groove_track_role(t) == GROOVE_TRACK_OFF ? "OFF"
+                : v[t].muted ? "MUTE" : v[t].solo ? "SOLO" : rest;
+            if (t == track) { diamond(162, y + 7, 4, TEXT); diamond(162, y + 7, 2, colors[t]); }
+            else diamond(162, y + 7, 3, v[t].muted ? DIM : colors[t]);
+            if (midi_active[t]) diamond(162, y + 15, 1, GREEN);
+            text(170, y + 1, word, 1, v[t].muted ? DIM : colors[t], BACK);
+            text(170, y + 10, state, 1, t == track ? TEXT : DIM, BACK);
+        }
+        unsigned level = lush ? lush_track_level(t) : v[t].audible ? v[t].level : 0U;
+        unsigned meter = (level * 60U + 63U) / 127U;
+        if (meter != cache->meter_cache[t]) {
+            cache->meter_cache[t] = meter;
+            paint_fill(170, y + 21, 62, 2, PANEL);
+            if (meter) paint_fill(170, y + 21, meter, 2, level >= 124 ? AMBER : colors[t]);
         }
     }
 }
@@ -861,7 +862,7 @@ static __attribute__((noinline)) void track_lfo_draw(void)
     text(8, 40, "TRACK LFO", 2, colors[track], BACK);
     text(8, 62, "T", 1, colors[track], BACK);
     number(14, 62, track + 1, 1, 1, colors[track], BACK);
-    text(32, 62, source_names[frame_views[track].type], 1, TEXT, BACK);
+    text(32, 62, sound_name(track), 1, TEXT, BACK);
     text(8, 80, v[1] ? "MODULATION ON" : "DEPTH 0 = OFF", 1, v[1] ? GREEN : DIM, BACK);
     text(8, 100, v[2] ? "STEREO PAN" : "VOLUME TREMOLO", 2, TEXT, BACK);
     text(8, 140, "K1 RATE    K2 DEPTH", 1, DIM, BACK);
@@ -977,22 +978,26 @@ static __attribute__((noinline)) void mix_draw(const struct groove_view v[8])
     if (cache->title_cache != bank) {
         cache->title_cache = bank;
         paint_fill(0, 32, 240, 33, BACK);
-        text(8, 35, "MIX  8 TRACKS", 1, TEXT, BACK);
-        text(8, 51, "KEYS 1-8 MUTE  9-16 SOLO", 1, DIM, BACK);
+        text(8, 35, "MIX  4 LAYERS", 1, TEXT, BACK);
+        text(8, 51, "KEYS 1-4 MUTE  9-12 SOLO", 1, DIM, BACK);
     }
-    for (unsigned i = 0; i < 16; ++i) {
-        unsigned t = i & 7U, on = i < 8 ? v[t].muted : v[t].solo;
-        uint32_t sig = on | ((t == track) << 1);
+    for (unsigned i = 0; i < 8; ++i) { /* top row mutes, bottom row solos */
+        unsigned t = i & 3U, on = i < 4 ? v[t].muted : v[t].solo;
+        const char *lush = lush_track_name(t);
+        uint32_t sig = (on | ((t == track) << 1)) ^ (uint32_t)(uintptr_t)lush;
         if (sig == cache->tile_cache[i])
             continue;
         cache->tile_cache[i] = sig;
-        unsigned x = 8 + (i % 4) * 57, y = 72 + (i / 4) * 29;
+        unsigned x = 8 + (i % 4) * 57, y = 70 + (i / 4) * 54;
         uint16_t bg = on ? colors[t] : PANEL;
-        paint_fill(x, y, 53, 25, bg);
+        paint_fill(x, y, 53, 48, bg);
         if (t == track)
-            frame(x, y, 53, 25, TEXT);
-        text(x + 7, y + 5, i < 8 ? "MUTE" : "SOLO", 1, on ? BACK : DIM, bg);
-        number(x + 37, y + 5, t + 1, 1, 1, on ? BACK : colors[t], bg);
+            frame(x, y, 53, 48, TEXT);
+        text(x + 6, y + 6, i < 4 ? "MUTE" : "SOLO", 1, on ? BACK : DIM, bg);
+        number(x + 40, y + 6, t + 1, 1, 1, on ? BACK : colors[t], bg);
+        char word[9] = {0};
+        for (unsigned n = 0; lush && lush[n] && lush[n] != ' ' && n < 8; ++n) word[n] = lush[n];
+        text(x + 3, y + 30, word, 1, on ? BACK : colors[t], bg);
     }
 }
 static void radio_line(unsigned slot, unsigned y, const char *value, uint16_t color)
@@ -1192,7 +1197,7 @@ static __attribute__((noinline)) void effects_draw(void)
         else {
             text(8, 40, "TRACK", 1, TEXT, BACK);
             number(44, 40, track + 1U, 1, 1, ACCENT, BACK);
-            text(60, 40, source_names[frame_views[track].type], 1, TEXT, BACK);
+            text(60, 40, sound_name(track), 1, TEXT, BACK);
         }
         text(8, 64, "PRESETS: TRACK / SHARED / DELAY", 1, DIM, BACK);
     }
@@ -1606,7 +1611,7 @@ static void draw_page_body(const struct fm1_ble_status *ble)
                                                              : "STEP REC - PLAY KEYS  REC TO FINISH"
                        : visible == OVERVIEW && (previous_buttons & BUTTON(HOME))
                            ? "PRESETS SOURCE  EDIT PARAMETERS"
-                       : visible == OVERVIEW ? "PRESETS PRESET  ALGO ENGINE"
+                       : visible == OVERVIEW ? "PRESETS SCENE   KEYS CHORD"
                        : visible == STEPS    ? "PRESETS STEP  OCT PAGE  HOLD SEQ MORE"
                        : visible == MIX      ? "KEYS MUTE/SOLO  GLO / HOME BACK"
                        : visible == FM_EDIT  ? "BLACK OP  SELECT PAGE  EDIT BACK"
@@ -1864,7 +1869,7 @@ void groove_screen_init(void)
 static void select_track(int delta)
 {
     unsigned before = track;
-    track = (unsigned)clamp((int)track + delta, 0, 7);
+    track = (unsigned)clamp((int)track + delta, 0, LAYERS_SHOWN - 1); /* worship scenes use four layers */
     if (page == FM_QUICK && groove_source_type(track) != GROOVE_DX7) page = TONE_EDIT;
     if (page == TONE_EDIT && !advanced_edit && groove_source_type(track) == GROOVE_DX7) page = FM_QUICK;
     if ((groove_source_type(track) != GROOVE_DX7 && page == FM_EDIT) ||

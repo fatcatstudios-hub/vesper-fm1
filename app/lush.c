@@ -117,6 +117,7 @@ static struct {
     volatile int32_t gain, reverb, delay; /* Q15 */
     uint8_t pan_next;
 } layer[TRACKS];
+static uint8_t track_level[TRACKS]; /* live level per layer, for the home screen */
 static volatile int32_t fx_decay = 26000, fx_feedback = 12000, fx_wet = 20000, fx_damp = 9000;
 static volatile uint32_t delay_q16 = 11025U << 16; /* half-rate samples, Q16 */
 static volatile uint32_t beat_inc = 0;    /* per-sample step of a 16-beat (4-bar) phase */
@@ -128,6 +129,7 @@ const char *lush_track_name(unsigned track)
 {
     return track < TRACKS && layer[track].patch != LUSH_NONE && layer[track].patch < LUSH_PATCHES ? names[layer[track].patch] : 0;
 }
+unsigned lush_track_level(unsigned track) { return track < TRACKS ? track_level[track] : 0U; }
 LUSH_CODE unsigned lush_owns(unsigned track) { return track < TRACKS && layer[track].patch != LUSH_NONE; }
 
 __attribute__((minsize)) void lush_layer(unsigned track, unsigned patch, unsigned volume, unsigned reverb, unsigned delay)
@@ -880,8 +882,12 @@ LUSH_CODE void lush_render(int32_t *output)
     for (unsigned i = 0; i < 2 * N; ++i) bus_dry[i] = 0;
     for (unsigned i = 0; i < N; ++i) bus_chorus[i] = bus_reverb[i] = bus_delay[i] = 0;
     unsigned voicing = 0;
+    for (unsigned t = 0; t < TRACKS; ++t) if (track_level[t]) --track_level[t]; /* ~0.4 s fall */
     for (unsigned i = 0; i < VOICES; ++i)
         if (voices[i].active) {
+            unsigned l = (unsigned)(((int64_t)voices[i].amp_now * voices[i].velocity) >> 23); /* 0..127 */
+            if (l > 127U) l = 127U;
+            if (l > track_level[voices[i].track]) track_level[voices[i].track] = (uint8_t)l;
 #if FM1_HOST_TEST
             ++lush_stat[patches[voices[i].patch].ks == 2 ? 1 : 0];
 #endif

@@ -400,6 +400,20 @@ static int active_scene(void)
     return -1;
 }
 const char *worship_chord_label(void) { return follow.label; }
+static const char *const roots[12] = {"C","C#","D","Eb","E","F","F#","G","Ab","A","Bb","B"};
+/* For the home orbit: the chord root ("C#") and its quality ("", "MIN", "SUS2", "SUS4"). */
+const char *worship_chord_root(void)
+{
+    int scene = active_scene();
+    if (scene < 0) return 0;
+    return roots[follow.scene == scene ? follow.root : scenes[scene].root];
+}
+const char *worship_chord_quality(void)
+{
+    static const char *const kinds[QUALITIES] = {"", "MIN", "SUS2", "SUS4"};
+    int scene = active_scene();
+    return scene >= 0 && follow.scene == scene ? kinds[follow.quality] : "";
+}
 int worship_keys(uint32_t keys, uint32_t pressed, int octave)
 {
     int scene = active_scene();
@@ -434,7 +448,6 @@ int worship_keys(uint32_t keys, uint32_t pressed, int octave)
         groove_sequence_replace(t, 0, cells, GROOVE_STEPS);
     }
     follow.root = (uint8_t)root; follow.quality = (uint8_t)quality;
-    static const char *const roots[12] = {"C","C#","D","Eb","E","F","F#","G","Ab","A","Bb","B"};
     static const char *const kinds[QUALITIES] = {"MAJ", "MIN", "SUS2", "SUS4"};
     char *out = follow.label;
     strcpy(out, "CHORD  "); strcat(out, roots[root]); strcat(out, " "); strcat(out, kinds[quality]);

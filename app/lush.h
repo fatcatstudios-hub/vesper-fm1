@@ -38,6 +38,7 @@ void lush_layer(unsigned track, unsigned patch, unsigned volume, unsigned reverb
 void lush_effects(const uint8_t fx[4], unsigned delay_ticks, unsigned tempo, unsigned shimmer);
 const char *lush_patch_name(unsigned patch);
 const char *lush_track_name(unsigned track);
+unsigned lush_track_level(unsigned track);   /* 0..127, live */
 
 /* Control task, from the sample bank loader: bind one of the eight shared
  * sample slots (memory-mapped SEA5 data, 32 kHz). NULL data unbinds; voices
