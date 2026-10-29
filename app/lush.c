@@ -94,7 +94,7 @@ static FM1_AUDIO_DATA const struct patch patches[LUSH_PATCHES] = {
     [LUSH_DETUNE_BASS]  = {0, 104,  0, 70,  0, 2, 11, 4,  0,-1, 42,100, 26, 20, 46, {14,68,20,62},   {22,76,90,64},     84, 88, 0,  0,  0,  0, 0, 0, 0, 0,0, 0, 0,0,0},
 };
 static const char *const names[LUSH_PATCHES] = {
-    "FM ENGINE", "GLASS PLUCK", "WARM BASS", "SUB", "DETUNE PLUCK", "SUPERSAW", "JUNO ARP", "DETUNE BASS",
+    "", "GLASS PLUCK", "WARM BASS", "SUB", "DETUNE PLUCK", "SUPERSAW", "JUNO ARP", "DETUNE BASS",
     "PIANO", "MARIMBA", "GLOCK", "HALO PLUCK",
     "HANDPAN", "KALIMBA", "VOX OOH", "VOX EE", "MUTED GTR", "REV PIANO", "REV GLOCK"
 };
@@ -123,6 +123,11 @@ static volatile uint32_t beat_inc = 0;    /* per-sample step of a 16-beat (4-bar
 static volatile int32_t fx_shimmer = 0;   /* Q15 */
 static uint32_t beat_phase;
 
+/* The LUSH sound on a track, or NULL when the track plays the FM1 engine. */
+const char *lush_track_name(unsigned track)
+{
+    return track < TRACKS && layer[track].patch != LUSH_NONE && layer[track].patch < LUSH_PATCHES ? names[layer[track].patch] : 0;
+}
 LUSH_CODE unsigned lush_owns(unsigned track) { return track < TRACKS && layer[track].patch != LUSH_NONE; }
 
 __attribute__((minsize)) void lush_layer(unsigned track, unsigned patch, unsigned volume, unsigned reverb, unsigned delay)

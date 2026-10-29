@@ -3,16 +3,41 @@
 #include "fm_patch.h"
 #include "version.h"
 #include "fm1_engine_control.h"
+#include "lush.h"
 #include <string.h>
+/* Crystal theme. BACK and PANEL are not flat colours: BACK draws the frosted
+ * backdrop (deep indigo with faint floating glows) and PANEL draws frosted
+ * glass over it, both computed per pixel so they cost no image storage. */
 enum {
     BACK = 0x0000,
     PANEL = 0x18e3,
-    TEXT = 0xef5d,
-    ACCENT = 0x07ff,
-    DIM = 0x738e,
-    GREEN = 0x07e0,
-    AMBER = 0xfd20
+    TEXT = 0xef9f,    /* frost white */
+    ACCENT = 0x8edf,  /* ice blue */
+    DIM = 0x8c97,     /* lavender grey */
+    GREEN = 0x7f9a,   /* aqua: play, follow, active */
+    AMBER = 0xfd94    /* soft rose: pause, warnings */
 };
+/* Three faint glows: centre x, y, radius^2, 1/radius^2 (Q24) and their RGB565 tint. */
+static const struct { int16_t x, y; int32_t r2, inv; uint8_t r, g, b; } glows[3] = {
+    {200,  30, 120 * 120, 16777216 / (120 * 120), 1, 7, 6},   /* ice, top right */
+    { 30, 200, 130 * 130, 16777216 / (130 * 130), 4, 3, 6},   /* lavender, low left */
+    {140, 140,  90 *  90, 16777216 / ( 90 *  90), 3, 2, 3},   /* rose haze, centre */
+};
+static uint16_t frost(unsigned x, unsigned y, unsigned glass)
+{
+    /* Indigo to violet, top to bottom, dithered against banding. */
+    int dither = (int)((x ^ y) & 1U);
+    int r = 1 + (int)(y * 3U + 60U) / 240, g = 4 + (int)y / 120 + dither, b = 4 + (int)(y * 4U + 30U * (unsigned)dither) / 240;
+    for (unsigned i = 0; i < 3; ++i) {
+        int dx = (int)x - glows[i].x, dy = (int)y - glows[i].y, d2 = dx * dx + dy * dy;
+        if (d2 >= glows[i].r2) continue;
+        int w = (int)(((int64_t)(glows[i].r2 - d2) * glows[i].inv) >> 16); /* 0..256 */
+        w = (w * w) >> 8;                                                     /* soft edge */
+        r += (glows[i].r * w) >> 8; g += (glows[i].g * w) >> 8; b += (glows[i].b * w) >> 8;
+    }
+    if (glass) { r += 4; g += 10; b += 7; }  /* frosted glass: lifted, a touch of ice */
+    return (uint16_t)((r > 31 ? 31 : r) << 11 | (g > 63 ? 63 : g) << 5 | (b > 31 ? 31 : b));
+}
 /* Five columns per glyph, bit 0 at the top. Digits followed by uppercase. */
 static const uint8_t font[36][5] = {
     {0x3e, 0x51, 0x49, 0x45, 0x3e}, {0, 0x42, 0x7f, 0x40, 0},       {0x42, 0x61, 0x51, 0x49, 0x46},
@@ -59,9 +84,11 @@ static __attribute__((noinline)) void paint_fill(unsigned x, unsigned y, unsigne
     if (x < paint_x) x = paint_x;
     unsigned first = y < paint_top ? paint_top : y;
     unsigned end = y + h < paint_top + PAINT_ROWS ? y + h : paint_top + PAINT_ROWS;
+    unsigned see_through = color == BACK || color == PANEL;
     for (unsigned row = first; row < end; ++row)
         for (unsigned col = x; col < right; ++col)
-            paint_pixels[(row - paint_top) * (paint_end - paint_x) + col - paint_x] = color;
+            paint_pixels[(row - paint_top) * (paint_end - paint_x) + col - paint_x] =
+                see_through ? frost(col, row, color == PANEL) : color;
 }
 static const uint8_t punctuation[][6] = {
     {45,8,8,8,8,8}, {47,0x60,0x18,6,1,0}, {43,8,8,0x3e,8,8},
@@ -116,7 +143,8 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
             uint16_t *pixel = paint_pixels + (row - paint_top) * stride + first_col - paint_x;
             for (unsigned col = first_col; col < end_col; ++col) {
                 unsigned column = (col - x) / scale;
-                *pixel++ = column < 5U && (shape[column] & mask) ? color : background;
+                *pixel++ = column < 5U && (shape[column] & mask) ? color
+                         : background == BACK || background == PANEL ? frost(col, row, background == PANEL) : background;
             }
         }
     }
@@ -126,7 +154,8 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
 enum { OVERVIEW, STEPS, FM_EDIT, FM_ENV, FM_LFO, TONE_EDIT, MIX, BLE, PROJECT, NAME, EFFECTS, SOURCE, ACTIONS, STEP_EDIT, RHYTHM, FM_QUICK, PRESET_BROWSER, ARP_EDIT, STARTUP };
 enum { OCT_DOWN, OCT_UP, FX, SCL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
 #define BUTTON(b) (1U << (b))
-static const uint16_t colors[8] = {0x3c9f, 0x07bf, 0x4eae, 0x06d4, 0xac9f, 0xed18, 0xff06, 0xfba5};
+/* Track prism: ice, aqua, mint, seafoam, periwinkle, lavender, pearl, rose quartz. */
+static const uint16_t colors[8] = {0x8e5f, 0x7f3e, 0x9798, 0x6ed9, 0xad5f, 0xe59e, 0xf739, 0xfd98};
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 /* FM1 EDIT key IDs 15,17,19,22,24,27,29,31,34,36 minus 14. */
 static const uint8_t edit_keys[10] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22};
@@ -521,6 +550,8 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
                         ((uint32_t)v[t].solo << 17) | ((uint32_t)v[t].ready << 18) |
                         ((uint32_t)v[t].type << 19) | ((uint32_t)midi_active[t] << 22) |
                         ((uint32_t)groove_track_role(t) << 23);
+        const char *lush = lush_track_name(t);
+        meta ^= (uint32_t)(uintptr_t)lush << 7; /* a scene change swaps the sound name */
         if (meta != cache->row_cache[t]) {
             cache->row_cache[t] = meta;
             paint_fill(5, y, 71, 16, BACK);
@@ -530,8 +561,16 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
             paint_fill(7, y + 12, 3, 3, midi_active[t] ? GREEN : bg);
             char fm_name[8]={0}; uint8_t patch[156];
             if (v[t].type==GROOVE_DX7 && !groove_fm_copy(t,patch,NULL)) memcpy(fm_name,patch+145,7);
+            /* LUSH sounds print as two words: "HALO" over "PLUCK". */
+            char word[9] = {0}; const char *rest = "";
+            if (lush) {
+                unsigned n = 0;
+                while (lush[n] && lush[n] != ' ' && n < 8) { word[n] = lush[n]; ++n; }
+                rest = lush[n] == ' ' ? lush + n + 1 : "";
+            }
             text(29, y + 1,
-                 !v[t].ready                  ? "ERROR"
+                 lush                         ? word
+                 : !v[t].ready                  ? "ERROR"
                  : v[t].type == GROOVE_DX7    ? fm_name
                  : v[t].type == GROOVE_303    ? (v[t].program ? "303 SQR" : "303 SAW")
                  : v[t].type == GROOVE_PSG    ? chip_names[v[t].program & 3U]
@@ -544,6 +583,7 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
                  : groove_track_role(t) == GROOVE_TRACK_PLAY ? (v[t].muted ? "P MUT" : v[t].solo ? "P SOLO" : "PLAY")
                  : v[t].muted      ? "MUTE"
                  : v[t].solo     ? "SOLO"
+                 : lush          ? rest
                  : v[t].modified ? "EDITED"
                                  : "",
                  1, DIM, BACK);
@@ -676,7 +716,9 @@ static unsigned fm_parameter(unsigned col)
         return 255;
     return p->parameter[col] + (p->per_operator ? (5 - op) * 21 : 0);
 }
+#if FM1_ALG_DIAGRAM
 static void algorithm_draw(unsigned algorithm, unsigned muted);
+#endif
 static __attribute__((noinline, cold, minsize)) void fm_draw(const uint8_t patch[156], const struct groove_fm_controls *controls)
 {
     if (paint_rendering && (paint_top >= 192 || paint_top + PAINT_ROWS <= 32)) return;
@@ -758,8 +800,15 @@ static __attribute__((noinline, cold, minsize)) void fm_draw(const uint8_t patch
             text(8, 146, patch[141] ? "KEY SYNC ON" : "KEY SYNC OFF", 1, TEXT, BACK);
             text(124, 146, "PM SENS", 1, DIM, BACK);
             number(178, 146, patch[143], 1, 1, TEXT, BACK);
-        } else
+        } else {
+#if FM1_ALG_DIAGRAM
             algorithm_draw(patch[134], controls->operators);
+#else /* worship build: the operator diagram is left out to save program flash */
+            (void)controls;
+            text(8, 91, "ALG", 1, DIM, BACK);
+            number(8, 110, patch[134] + 1U, 2, 4, colors[track], BACK);
+#endif
+        }
     }
     uint32_t sig = patch[134] | ((uint32_t)patch[135] << 5) | ((uint32_t)controls->mono << 8);
     sig = signature(sig, patch + 145, 10);
@@ -1528,7 +1577,7 @@ static void draw_page_body(const struct fm1_ble_status *ble)
                 decimal(value, v->volume, 1);
             else if (col == 1 && visible == OVERVIEW) {
                 label = "SOURCE";
-                strcpy(value, source_names[v->type]);
+                strcpy(value, lush_track_name(track) ? "LUSH" : source_names[v->type]);
             } else if (col == (visible == OVERVIEW ? 2U : 1U)) {
                 label = visible != OVERVIEW && step_follow && v->playing ? "PLAY" : "STEP";
                 decimal(value, step_follow && v->playing ? v->play_step + 1U : cursor + 1U, 2);
@@ -2904,6 +2953,7 @@ void groove_screen_snapshot(uint8_t state[8])
 #endif
 
 /* FM1 algorithm layout drawn with bounded RGB565 primitives. */
+#if FM1_ALG_DIAGRAM
 static const uint8_t algorithms[32][12] = {
     {0x20, 0x00, 0x21, 0x00, 0x30, 0x00, 0x31, 0x00, 0x32, 0x00, 0x33, 0x01}, /* 1 */
     {0x20, 0x00, 0x21, 0x01, 0x30, 0x00, 0x31, 0x00, 0x32, 0x00, 0x33, 0x00}, /* 2 */
@@ -2981,3 +3031,4 @@ static void algorithm_draw(unsigned algorithm, unsigned muted)
         number(x + 8, y + 3, i + 1, 1, 1, muted & (1U << i) ? DIM : BACK, bg);
     }
 }
+#endif
