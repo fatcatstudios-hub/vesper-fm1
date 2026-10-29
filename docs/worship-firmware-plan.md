@@ -128,3 +128,15 @@ Fork of M-VAVE's official **FM1 Open V14** (github.com/m-vave/fm1_open, GPLv3 + 
 - Firmware package built on Linux (`tools/fw/build.sh`): app 453,844 / 453,921 bytes, heap 123 KB, image checks pass. Not yet run on hardware.
 - Space cuts committed (86744b2 on `worship`); not pushed. Needs Zach's own GitHub repo, never m-vave/fm1_open.
 - Next: load FM1-WORSHIP.fwsc in the web emulator (https://joakimeriksson.github.io/fm1-emu/?mhz=240) via "Open .fwsc…", then check boot, all 16 scenes, chord follow and CPU load.
+
+## Emulator test (2026-10-28, fm1-emu web, 240 MHz)
+
+- Boots cleanly to the overview page. The PRESETS knob loads all 16 scenes; names, BPM, loop lengths and patterns display correctly, and FOLLOW is on.
+- Plays and stops normally. Stopped, the CPU idles 80% in every scene (stock firmware: 70-80%).
+- CPU idle while playing (share of time free, per-second samples):
+  - DOTTED 8TH 41, ROLLING 3S 41, STAIRCASE 15, OCTAVE RUN 17, GALLOP 25, MORNING 19-21
+  - SANCTUARY 52, HEARTBEAT 50, GLORY BUILD 54-59, CASCADE 32, ANTHEM 8THS 43-50
+  - QUIET PLACE 58-62, SYNC LINES 51, SPIRIT MOVE 39, ALTAR CALL 60, NEON SKY 42-60
+- STAIRCASE, OCTAVE RUN and MORNING have the least headroom (15-20% idle). Trim them before flashing hardware.
+- Audio dropouts heard in the emulator are the host Mac failing to emulate 240 MHz in real time (load 90-130%), not the firmware.
+- Not yet checked: chord follow by ear in the emulator.
