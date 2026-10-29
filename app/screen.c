@@ -28,10 +28,10 @@ static const struct { int16_t x, y; int32_t r2, inv; uint8_t r, g, b; } glows[3]
     { 30, 200, 130 * 130, 16777216 / (130 * 130), 4, 3, 6},   /* lavender, low left */
     {140, 140,  90 *  90, 16777216 / ( 90 *  90), 3, 2, 3},   /* rose haze, centre */
 };
-static uint16_t frost(unsigned x, unsigned y, unsigned glass)
+static uint16_t frost_slow(unsigned x, unsigned y, unsigned glass)
 {
-    /* Indigo to violet, top to bottom, dithered against banding. */
-    int dither = (int)((x ^ y) & 1U);
+    /* Indigo to violet, top to bottom. */
+    int dither = 0;
     int r = 1 + (int)(y * 3U + 60U) / 240, g = 4 + (int)y / 120 + dither, b = 4 + (int)(y * 4U + 30U * (unsigned)dither) / 240;
     for (unsigned i = 0; i < 3; ++i) {
         int dx = (int)x - glows[i].x, dy = (int)y - glows[i].y, d2 = dx * dx + dy * dy;
@@ -41,6 +41,21 @@ static uint16_t frost(unsigned x, unsigned y, unsigned glass)
         r += (glows[i].r * w) >> 8; g += (glows[i].g * w) >> 8; b += (glows[i].b * w) >> 8;
     }
     if (glass) { r += 4; g += 10; b += 7; }  /* frosted glass: lifted, a touch of ice */
+    return (uint16_t)((r > 31 ? 31 : r) << 11 | (g > 63 ? 63 : g) << 5 | (b > 31 ? 31 : b));
+}
+/* The backdrop is smooth, so it is computed once on a 3-pixel grid; each
+ * pixel is then a lookup plus dither (and the glass lift for panels). */
+static uint16_t frost_cells[80 * 80];
+static __attribute__((cold)) void frost_build(void)
+{
+    for (unsigned cy = 0; cy < 80; ++cy)
+        for (unsigned cx = 0; cx < 80; ++cx) frost_cells[cy * 80 + cx] = frost_slow(cx * 3 + 1, cy * 3 + 1, 0);
+}
+static inline __attribute__((always_inline)) uint16_t frost(unsigned x, unsigned y, unsigned glass)
+{
+    unsigned c = frost_cells[((y * 171U) >> 9) * 80U + ((x * 171U) >> 9)];
+    unsigned r = c >> 11, g = ((c >> 5) & 63U) + ((x ^ y) & 1U), b = c & 31U;
+    if (glass) { r += 4; g += 10; b += 7; }
     return (uint16_t)((r > 31 ? 31 : r) << 11 | (g > 63 ? 63 : g) << 5 | (b > 31 ? 31 : b));
 }
 /* Five columns per glyph, bit 0 at the top. Digits followed by uppercase. */
@@ -62,7 +77,8 @@ static const uint8_t font[36][5] = {
  * A page change never exposes the temporary background clear on the panel. */
 enum { PAINT_ROWS = 16, PAINT_BANDS = FM1_SCREEN_HEIGHT / PAINT_ROWS };
 _Static_assert(FM1_SCREEN_WIDTH * PAINT_ROWS <= FM1_SCREEN_DMA_PIXELS, "LCD band capacity");
-static uint16_t paint_pixels[FM1_SCREEN_WIDTH * PAINT_ROWS];
+static uint16_t paint_buffers[2][FM1_SCREEN_WIDTH * PAINT_ROWS], *paint_pixels = paint_buffers[0];
+static unsigned paint_which;
 static uint8_t paint_left[PAINT_BANDS], paint_right[PAINT_BANDS];
 static unsigned paint_rendering, paint_top, paint_next, paint_x, paint_end;
 static uint32_t paint_priority;
@@ -241,6 +257,7 @@ static uint32_t edit_ms;
 static unsigned seq_down;
 static uint32_t seq_ms;
 static unsigned arp_down, arp_long;
+static unsigned v_edit, v_filter_env, play_mode; /* VESPER page state; ARP = play mode */
 static uint32_t arp_ms;
 static char project_stored[13];
 static int project_stored_result;
@@ -1309,8 +1326,9 @@ static void leds(const struct groove_view *v, unsigned visible)
     unsigned step_pages = visible == STEPS || visible == ACTIONS;
     bits = ((step_pages ? first > 0 : octave < 0) << OCT_DOWN)
         | ((step_pages ? first + 16 < v->sequence_length : octave > 0) << OCT_UP)
-        | ((visible == OVERVIEW) << HOME) | ((visible == EFFECTS) << FX)
-        | ((groove_arp_enabled(track) != 0) << ARP)
+        | ((visible == OVERVIEW || visible == MIX || visible == V_SCOPE) << HOME) | ((visible == EFFECTS) << FX)
+        | ((play_mode != 0) << ARP) | ((visible == V_EDIT) << EDIT)
+        | ((visible == V_ENV) << ENV) | ((visible == V_LFO) << LFO)
         | ((visible == FM_EDIT && (fm_group == 4 || fm_group == 5)) << SCL)
         | ((visible == STEPS || visible == ACTIONS || visible == STEP_EDIT || visible == RHYTHM) << SEQ)
         | ((writing != 0) << REC)
@@ -1478,7 +1496,6 @@ static void select_track(int delta);
  * (SELECT switches), LFO the tempo-locked motion. K1-K4 edit what the footer
  * shows; values belong to the focused voice and are saved with the project. */
 enum { VP_SOUND = 100, VP_LEVEL, VP_NONE };
-static unsigned v_edit, v_filter_env;
 static uint8_t frame_scope_lo[224], frame_scope_hi[224];
 static __attribute__((noinline)) const uint8_t *vesper_params(unsigned visible)
 {
@@ -1591,12 +1608,15 @@ static __attribute__((noinline)) void vesper_page_draw(unsigned visible)
                 /* The envelope's shape: attack, decay to sustain, hold, release. */
                 unsigned a = vesper_bar(ids[0]), d = vesper_bar(ids[1]), sus = vesper_bar(ids[2]), r = vesper_bar(ids[3]);
                 unsigned xa = 12 + a, xd = xa + d, xs = xd + 40, xr = xs + r, ys = 184 - sus * 80U / 64U;
+                unsigned last = 184;
                 for (unsigned x = 12; x <= xr && x < 232; ++x) {
                     unsigned y = x <= xa ? 184 - (x - 12) * 80U / (a ? a : 1U)
                                : x <= xd ? 104 + (x - xa) * (ys - 104) / (d ? d : 1U)
                                : x <= xs ? ys : ys + (x - xs) * (184 - ys) / (r ? r : 1U);
+                    unsigned lo = y < last ? y : last, hi = y < last ? last : y;
                     paint_fill(x, y, 1, 185 - y, PANEL);
-                    paint_fill(x, y, 1, 2, colors[track]);
+                    paint_fill(x, lo, 2, hi - lo + 2, colors[track]); /* joined, two pixels thick */
+                    last = y;
                 }
             } else
                 for (unsigned c = 0; c < 4; ++c) {
@@ -1633,6 +1653,13 @@ static void vesper_controls(const struct fm1_controls *controls)
     for (unsigned c = 0; c < 4; ++c) {
         int delta = controls->encoders[2 + c];
         if (!delta) continue;
+        if (ids[c] != VP_SOUND && ids[c] != LP_OCTAVE && ids[c] != LP_UNISON && ids[c] != LP_CHORUS && ids[c] != LP_RATE) {
+            /* Wide ranges move faster: two steps per click, more when spun. */
+            int amount = delta < 0 ? -delta : delta;
+            int gain = amount < 2 ? 2 : amount < 4 ? 4 : 8;
+            if (gain < 2 * (int)encoder_speed[2 + c]) gain = 2 * (int)encoder_speed[2 + c];
+            delta *= gain;
+        }
         if (ids[c] == VP_SOUND) {
             unsigned sound = lush_voice_sound(track);
             if (sound != LUSH_NONE)
@@ -1643,15 +1670,19 @@ static void vesper_controls(const struct fm1_controls *controls)
     }
 }
 /* Audio tap from the output stage: last 256 mono samples at 22 kHz. */
-extern int16_t vesper_scope[256];
-extern volatile uint8_t vesper_scope_at;
+extern int16_t vesper_scope[512];
+extern volatile uint16_t vesper_scope_at;
 static void vesper_scope_frame(void)
 {
-    int16_t s[256];
+    /* A new trace only once the last one is fully on the glass: no torn frames. */
+    for (unsigned b = 0; b < PAINT_BANDS; ++b) if (paint_left[b] < paint_right[b]) return;
+    static int16_t s[512];
     unsigned at = vesper_scope_at;
-    for (unsigned i = 0; i < 256; ++i) s[i] = vesper_scope[(at + i) & 255U];
+    for (unsigned i = 0; i < 512; ++i) s[i] = vesper_scope[(at + i) & 511U];
     unsigned start = 0, peak = 1;
-    for (unsigned i = 1; i < 32; ++i) if (s[i - 1] < 0 && s[i] >= 0) { start = i; break; }
+    /* Trigger on a rising zero crossing after a clear dip, like a hardware scope. */
+    for (unsigned i = 8; i < 288; ++i)
+        if (s[i - 1] < 0 && s[i] >= 0 && s[i - 6] < -200) { start = i; break; }
     for (unsigned i = 0; i < 224; ++i) { unsigned m = (unsigned)(s[start + i] < 0 ? -s[start + i] : s[start + i]); if (m > peak) peak = m; }
     static unsigned gain_peak = 4000;
     gain_peak = peak > gain_peak ? peak : gain_peak - (gain_peak >> 4) + 1U;
@@ -1998,12 +2029,8 @@ static void paint_flush(void)
     uint32_t started = fm1_millis();
     paint_rendering = 1;
     cache = &band_cache;
+    /* Two band buffers: compose the next band while the DMA sends the last. */
     for (unsigned visited = 0; visited < PAINT_BANDS; ++visited) {
-        int pending = fm1_screen_pending();
-        if (pending) {
-            if (pending < 0) saved_cache.shown_page = ~0U;
-            break;
-        }
         unsigned band = paint_next;
         /* Fresh knob/key feedback goes ahead of the rest of a page repaint.
          * Rotate within that set so continuous motion cannot starve its text. */
@@ -2019,7 +2046,15 @@ static void paint_flush(void)
         paint_x = left;
         paint_end = left + width;
         memset(cache, 0xff, sizeof *cache);
+        paint_pixels = paint_buffers[paint_which];
         draw_page(&frame_ble);
+        int pending;
+        while ((pending = fm1_screen_pending()) > 0)
+            if (fm1_millis() - started >= 12U) break;
+        if (pending) {   /* still busy (try again next poll) or a transport timeout */
+            if (pending < 0) saved_cache.shown_page = ~0U;
+            break;
+        }
         /* Rasterize directly into the tightly packed DMA rectangle. */
         if (fm1_screen_submit(left, paint_top, width, PAINT_ROWS,
                             paint_pixels, width * PAINT_ROWS)) {
@@ -2029,9 +2064,8 @@ static void paint_flush(void)
         paint_left[band] = FM1_SCREEN_WIDTH;
         paint_right[band] = 0;
         paint_priority &= ~(1U << band);
-        /* The DMA borrows paint_pixels. The next iteration/poll must observe
-         * completion before composing another band into that same buffer. */
-        if (fm1_millis() - started >= 4U) break;
+        paint_which ^= 1U; /* the DMA borrows this buffer; compose into the other */
+        if (fm1_millis() - started >= 8U) break;
     }
     paint_rendering = 0;
     cache = &saved_cache;
@@ -2151,6 +2185,7 @@ void groove_screen_init(void)
     fm1_controls_init();
     for (unsigned key = 0; key < 41; ++key) fm1_led_set(key, 0);
     fm1_screen_init();
+    frost_build();
     boot_started = fm1_millis();
     boot_active = boot_waiting = 1;
     struct fm1_ble_status ble = {0};
@@ -2299,6 +2334,18 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         page = ACTIONS; action_confirm = 0; seq_down = edit_down = 0;
         goto controls_done;
     }
+#if WORSHIP_SLIM
+    if (pressed & BUTTON(ARP)) {
+        /* VESPER: ARP switches the keys between setting the song's key (SEQ
+         * mode) and playing the focused voice live over the scene (PLAY mode). */
+        blocked_keys |= controls->keys;
+        if (!release_keys()) return 0;
+        play_mode ^= 1U; arp_down = arp_long = 0;
+        notice = play_mode ? "PLAY MODE - KEYS PLAY THE VOICE" : "SEQ MODE - KEYS SET THE KEY";
+        notice_until = now + 2000U;
+        goto controls_done;
+    }
+#endif
     if (arp_down && !arp_long && now - arp_ms >= 600U) {
         arp_long = 1; if (page != ARP_EDIT) arp_page = 0; page = ARP_EDIT;
         goto controls_done;
@@ -2388,7 +2435,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         goto controls_done;
     }
 #endif
-    if (arp_tap) {
+    if (arp_tap && !WORSHIP_SLIM) {
         if (!release_keys()) return 0;
         blocked_keys |= controls->keys;
         groove_arp_set(track, !groove_arp_enabled(track));
@@ -2934,7 +2981,7 @@ controls_done:
     if (page == TONE_EDIT && groove_source_type(track) == GROOVE_303)
         keys &= ~((1U << edit_keys[8]) | (1U << edit_keys[9]));
     /* WORSHIP: on HOME the keys pick the chord the scene follows. */
-    if (page == OVERVIEW && !mode && !glo_down) {
+    if (!play_mode && page != STEPS && page != ACTIONS && !mode && !glo_down) {
         int followed = worship_keys(keys, key_down, octave);
         if (followed >= 0) {
             if (followed) { notice = worship_chord_label(); notice_until = now + 2500U; }
