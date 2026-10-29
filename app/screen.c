@@ -1598,13 +1598,25 @@ static unsigned vesper_bar(unsigned id)
     return sum;
 static __attribute__((noinline)) unsigned bench_flash(void) { BENCH_BODY(1U) }
 FM1_AUDIO_CODE unsigned vesper_bench_ram(void) { BENCH_BODY(2U) }
-static unsigned bench_result[2], bench_sink;
+static unsigned bench_result[4], bench_sink;
 static void speed_test(void)
 {
     uint32_t t0 = fm1_millis(); bench_sink += bench_flash();
     uint32_t t1 = fm1_millis(); bench_sink += vesper_bench_ram();
     uint32_t t2 = fm1_millis();
-    bench_result[0] = t1 - t0; bench_result[1] = t2 - t1;
+    /* the real backdrop function, a full screen of calls */
+    for (unsigned y = 0; y < 240; ++y) for (unsigned x = 0; x < 240; ++x) bench_sink += frost(x, y, 0);
+    uint32_t t3 = fm1_millis();
+    bench_result[0] = t1 - t0; bench_result[1] = t2 - t1; bench_result[2] = t3 - t2; bench_result[3] = 0;
+    /* the real band fill, a full screen, only while the LCD is idle (its buffer is free) */
+    if (!fm1_screen_pending()) {
+        unsigned top = paint_top, x0 = paint_x, end = paint_end;
+        paint_rendering = 1; paint_x = 0; paint_end = 240;
+        for (unsigned b = 0; b < PAINT_BANDS; ++b) { paint_top = b * PAINT_ROWS; paint_fill(0, paint_top, 240, PAINT_ROWS, BACK); }
+        paint_rendering = 0; paint_top = top; paint_x = x0; paint_end = end;
+        bench_result[3] = fm1_millis() - t3;
+        saved_cache.shown_page = ~0U; /* repaint the page afterwards */
+    }
 }
 /* GLO: global settings. SELECT picks a row, K1 changes it. */
 enum { G_CLOCK, G_CLOCK_IN, G_CLOCK_OUT, G_MIDI_OUT, G_KEYS_OUT, G_LOCAL, G_THRU_IN, G_THRU_OUT,
@@ -1612,7 +1624,7 @@ enum { G_CLOCK, G_CLOCK_IN, G_CLOCK_OUT, G_MIDI_OUT, G_KEYS_OUT, G_LOCAL, G_THRU
 static const char *const global_names[G_ROWS] = {"CLOCK", "CLOCK IN", "CLOCK OUT", "MIDI OUT", "KEYS TO MIDI",
     "LOCAL SOUND", "THRU FROM", "THRU TO", "BLUETOOTH", "SWING", "CLICK", "BATTERY", "PAGE DRAW",
     "  PAINTING", "  DECIDING", "  PASSES/BANDS", "TEST: GLOWS", "TEST: SOUND FX", "TEST: SPEED K1", "VERSION"};
-static __attribute__((noinline)) void global_value(unsigned row, char out[12])
+static __attribute__((noinline)) void global_value(unsigned row, char out[20])
 {
     static const char *const ports[] = {"OFF", "DIN", "USB", "DIN+USB", "BLE", "DIN+BLE", "USB+BLE", "ALL"};
     static const char *const sources[] = {"AUTO", "USB", "BLE", "DIN"}, *const thru[] = {"DIN", "USB", "BLE"};
@@ -1635,8 +1647,9 @@ static __attribute__((noinline)) void global_value(unsigned row, char out[12])
     case G_PASSES: { char b[6]; decimal(out, (int)page_diag[2], 1); strcat(out, "/"); decimal(b, (int)page_diag[3], 1); strcat(out, b); } break;
     case G_BACKDROP: strcpy(out, flat_backdrop ? "OFF" : "ON"); break;
     case G_FX_TEST: strcpy(out, lush_fx_bypassed() ? "OFF" : "ON"); break;
-    case G_BENCH: { char b[6]; strcpy(out, "F"); decimal(b, (int)bench_result[0], 1); strcat(out, b);
-                    strcat(out, " R"); decimal(b, (int)bench_result[1], 1); strcat(out, b); } break;
+    case G_BENCH: { out[0] = 0; /* flash / ram / backdrop / band fill, ms */
+                    for (unsigned i = 0; i < 4; ++i) { char b[12]; decimal(b, (int)(bench_result[i] > 999 ? 999 : bench_result[i]), 1); if (i) strcat(out, "/"); strcat(out, b); }
+                  } break;
     case G_VERSION: strcpy(out, SHOWN_VERSION); break;
     default: strcpy(out, v ? "ON" : "OFF");
     }
@@ -1670,7 +1683,7 @@ static __attribute__((noinline)) void global_draw(void)
     }
     for (unsigned i = 0; i < 7; ++i) {
         unsigned row = first + i, on = row == v_global_row;
-        char value[12];
+        char value[20];
         global_value(row, value);
         uint32_t sig = signature(row * 2U + on, value, (unsigned)strlen(value));
         if (cache->tile_cache[i] == sig) continue;
@@ -1683,7 +1696,7 @@ static __attribute__((noinline)) void global_draw(void)
         text(232 - 6 * (unsigned)strlen(value), y + 5, value, 1, on ? ACCENT : TEXT, bg);
     }
     if (paint_rendering && paint_top + PAINT_ROWS <= 190) return;
-    char value[12];
+    char value[20];
     global_value(v_global_row, value);
     knob(0, global_names[v_global_row], value, ACCENT);
     for (unsigned c = 1; c < 4; ++c) knob(c, "", "", DIM);
