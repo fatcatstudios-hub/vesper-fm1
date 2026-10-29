@@ -646,11 +646,11 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
         uint32_t meta = v[t].program | ((t == track) << 14) | ((uint32_t)v[t].muted << 16) |
                         ((uint32_t)v[t].solo << 17) | ((uint32_t)v[t].ready << 18) |
                         ((uint32_t)v[t].type << 19) |
-                        ((uint32_t)groove_track_role(t) << 23);
+                        ((uint32_t)groove_track_role(t) << 23) | ((uint32_t)(v[t].volume >> 2) << 25);
         meta ^= (uint32_t)(uintptr_t)lush << 7;
         if (meta != cache->row_cache[t]) {
             cache->row_cache[t] = meta;
-            paint_fill(156, y, 84, 20, BACK);
+            paint_fill(156, y, 84, 24, BACK);
             const char *name = v[t].ready ? sound_name(t) : "ERROR";
             char word[13] = {0}; unsigned n = 0;
             while (name[n] && name[n] != ' ' && n < 12) { word[n] = name[n]; ++n; }
@@ -661,8 +661,12 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
             text(162, y + 1, word, 1, v[t].muted ? DIM : colors[t], BACK);
             if (t == track) text(163, y + 1, word, 1, v[t].muted ? DIM : colors[t], INK);
             text(162, y + 10, state, 1, t == track ? TEXT : DIM, BACK);
+            /* The layer's coloured line shows its volume; it only moves when the
+             * volume does (live levels live on the mixer page). */
+            unsigned line = v[t].volume * 62U / 127U;
+            paint_fill(162, y + 21, 70, 2, PANEL);
+            if (line) paint_fill(162, y + 21, line, 2, v[t].muted ? DIM : colors[t]);
         }
-        /* No level meter here: levels move on the HOME mixer page only. */
     }
 }
 static void step_knob(unsigned col, unsigned bank)
@@ -1065,8 +1069,10 @@ static __attribute__((noinline)) void mix_draw(const struct groove_view v[8])
         if (lit != cache->meter_cache[t]) {
             if (!paint_rendering) at[t] = frame_time;
             cache->meter_cache[t] = lit;
-            for (unsigned seg = 0; seg < 20; ++seg)
-                paint_fill(x + 6, 174 - 5 * seg, 18, 4, seg < lit ? (seg >= 17 ? AMBER : colors[t]) : on ? BACK : PANEL);
+            /* a thin line: lit part in the voice's colour, the rest a faint guide */
+            unsigned h = lit * 5U;
+            paint_fill(x + 16, 78, 3, 100 - h, on ? BACK : PANEL);
+            if (h) paint_fill(x + 16, 178 - h, 3, h, lit >= 18 ? AMBER : colors[t]);
         }
     }
 }
