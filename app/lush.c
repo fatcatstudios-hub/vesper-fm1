@@ -389,10 +389,12 @@ static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsig
         if (best == 1000) return; /* no samples loaded */
     }
     /* Per-layer polyphony keeps the CPU bounded: basses are mono, synth layers
-     * keep three notes, strings four, samples six. Over the limit, the layer's
+     * keep three notes (the stereo supersaw and detune pluck two), strings four,
+     * samples six. Over the limit, the layer's
      * oldest note fades out in ~4 ms. */
     unsigned cap = patch_id == LUSH_WARM_BASS || patch_id == LUSH_SUB || patch_id == LUSH_DETUNE_BASS ? 1U
-                 : p->ks == 2 ? (p->reverse ? 2U : 6U) : p->ks == 1 ? 4U : 3U;
+                 : p->ks == 2 ? (p->reverse ? 2U : 6U) : p->ks == 1 ? 4U
+                 : patch_id == LUSH_SUPERSAW || patch_id == LUSH_DETUNE_PLUCK ? 2U : 3U; /* stereo 3-saw: heaviest */
     for (;;) {
         struct voice *oldest = 0; unsigned count = 0;
         for (unsigned i = 0; i < VOICES; ++i) {

@@ -43,6 +43,7 @@ done < <(cd "$ROOT" && find app -type f \( -name '*.c' -o -name '*.S' \) ! -path
 ID=$( { echo dx7; sha256sum "$ROOT/sdk/manifest.json" | cut -d' ' -f1;
         cd "$ROOT" && find app -type f | LC_ALL=C sort | while read -r f; do echo "$f:$(sha256sum "$f" | cut -d' ' -f1)"; done; } | sha256sum | cut -d' ' -f1)
 BYTES=$(echo "$ID" | sed 's/../0x&,/g; s/,$//')
+printf '{"profile":"dx7","family":7,"build_id":"%s"}\n' "$ID" > build-identity.json
 cat > generated/build_identity.c <<EOF
 #include "layout.h"
 const struct fm1_firmware_layout fm1_layout = {536576U,7U};
