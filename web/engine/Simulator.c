@@ -350,6 +350,8 @@ EXPORT("sim_arp") unsigned sim_arp(unsigned track)
            (groove_arp_setting(track, 2) << 13) | (groove_arp_setting(track, 3) << 15) |
            (groove_arp_setting(track, 4) << 17) | (groove_arp_setting(track, 5) << 23);
 }
+extern uint32_t lush_stat[2];
+EXPORT("sim_lush_stat") uint32_t *sim_lush_stat(void) { return lush_stat; }
 EXPORT("sim_render") const float *sim_render(void)
 {
     /* Preserve one block of output latency. */

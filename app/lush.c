@@ -25,6 +25,22 @@ static inline LUSH_CODE uint32_t note_inc(unsigned note)
     if (note > 127) note = 127;
     return lush_octave[note % 12U] >> (10U - note / 12U);
 }
+__attribute__((minsize)) static void lush_tables_build(void)
+{
+    if (lush_env[0]) return;
+    for (unsigned i = 0; i < 16; ++i) lush_env[i] = lush_env_head[i];
+    uint64_t x = 133427561U; /* 1/tau at index 16, Q30 */
+    for (unsigned i = 16; i < 64; ++i) {
+        lush_env[i] = (uint32_t)(x - ((x * x) >> 31)); /* 1 - e^-x ~ x - x^2/2 (x <= 1/8) */
+        x = (x * 912838509U) >> 30;
+    }
+    for (unsigned i = 0; i < 136; ++i) { /* sin(x) by series, x = pi * inc / 2^32 in Q16 */
+        int32_t y = (int32_t)(((note_inc(i) >> 15) * 102948U + 32768U) >> 16);
+        int32_t x2 = (y * y) >> 16, x3 = (x2 * y) >> 16, x5 = (x3 * x2) >> 16;
+        int32_t c = y - x3 / 6 + x5 / 120; /* within 11 cents of the stored table above 60 Hz */
+        lush_cutoff[i] = (uint16_t)(c > 31343 ? 31343 : c);
+    }
+}
 
 enum { TICK = 16, VOICES = 16, KS_VOICES = 8, KS_LEN = 1024, TRACKS = 8 };
 enum { STAGE_OFF, STAGE_ATTACK, STAGE_DECAY, STAGE_SUSTAIN, STAGE_RELEASE };
@@ -106,12 +122,12 @@ static volatile uint32_t delay_q16 = 11025U << 16; /* half-rate samples, Q16 */
 static volatile uint32_t beat_inc = 0;    /* per-sample step of a 16-beat (4-bar) phase */
 static volatile int32_t fx_shimmer = 0;   /* Q15 */
 static uint32_t beat_phase;
-LUSH_CODE void lush_transport(uint8_t status) { if (status == 0xfa) beat_phase = 0; }
 
 LUSH_CODE unsigned lush_owns(unsigned track) { return track < TRACKS && layer[track].patch != LUSH_NONE; }
 
-void lush_layer(unsigned track, unsigned patch, unsigned volume, unsigned reverb, unsigned delay)
+__attribute__((minsize)) void lush_layer(unsigned track, unsigned patch, unsigned volume, unsigned reverb, unsigned delay)
 {
+    lush_tables_build();
     if (track >= TRACKS) return;
     if (patch >= LUSH_PATCHES) patch = LUSH_NONE;
     if (volume > 127) volume = 127;
@@ -120,8 +136,9 @@ void lush_layer(unsigned track, unsigned patch, unsigned volume, unsigned reverb
     layer[track].delay = (int32_t)((delay > 15 ? 15 : delay) * 2184U);
     layer[track].patch = (uint8_t)patch;
 }
-void lush_effects(const uint8_t fx[4], unsigned delay_ticks, unsigned tempo, unsigned shimmer)
+__attribute__((minsize)) void lush_effects(const uint8_t fx[4], unsigned delay_ticks, unsigned tempo, unsigned shimmer)
 {
+    lush_tables_build();
     if (tempo >= 30 && tempo <= 300)
         beat_inc = (uint32_t)(((uint64_t)tempo << 32) / (60ULL * 44100ULL * 16ULL));
     fx_shimmer = (int32_t)(shimmer > 127 ? 127 : shimmer) * 150;   /* 0 .. 0.58 */
@@ -139,6 +156,7 @@ void lush_effects(const uint8_t fx[4], unsigned delay_ticks, unsigned tempo, uns
 struct envelope { int32_t level; uint8_t stage; };
 struct voice {
     uint8_t active, track, note, patch, pan;
+    uint8_t kill;                     /* stolen: fading out in a few ms */
     uint16_t age;
     int32_t velocity;                 /* Q15 */
     uint32_t phase[4], base;          /* saw 0..2, sine 3; base increment */
@@ -168,6 +186,9 @@ struct voice {
     int32_t reverse_chunk;            /* decoded chunk cached in ks_memory, -1 none */
 };
 static struct voice voices[VOICES];
+#if FM1_HOST_TEST
+uint32_t lush_stat[2]; /* voice-blocks rendered: synth/string/modal, sample */
+#endif
 static int16_t ks_memory[KS_VOICES][KS_LEN];
 static uint16_t voice_clock;
 
@@ -197,7 +218,7 @@ static unsigned root_from_name(const char *name)
     }
     return found >= 0 && found <= 127 ? (unsigned)found : 60U;
 }
-void lush_sample_bind(unsigned slot, const uint8_t *data, unsigned bytes, unsigned frames, const char *name)
+__attribute__((minsize)) void lush_sample_bind(unsigned slot, const uint8_t *data, unsigned bytes, unsigned frames, const char *name)
 {
     if (slot >= BANK_SLOTS) return;
     lush_dqt_build();
@@ -327,10 +348,15 @@ static LUSH_CODE void voice_tick(struct voice *v, const struct patch *p)
             v->modal_level[k] -= (int32_t)(((int64_t)v->modal_level[k] * lush_env[m->decay[k] >> 1]) >> 30);
         if (v->modal_level[0] < (ONE30 >> 13) && v->amp.stage != STAGE_RELEASE) v->amp.stage = STAGE_RELEASE;
     }
-    if (v->amp.stage == STAGE_RELEASE && v->amp.level < (ONE30 >> 13)) v->active = 0;
+    if (v->kill) { /* stolen: ~4 ms fade (the per-sample ramp keeps it click-free) */
+        v->amp.stage = STAGE_RELEASE;
+        v->amp.level -= (int32_t)(((int64_t)v->amp.level * lush_env[4]) >> 30);
+    }
+    /* Retire at -60 dB: below that the reverb and delay carry the tail. */
+    if (v->amp.stage == STAGE_RELEASE && v->amp.level < (ONE30 >> 10)) v->active = 0;
 }
 
-static LUSH_CODE struct voice *allocate(unsigned want_ks)
+static LUSH_CODE __attribute__((minsize)) struct voice *allocate(unsigned want_ks)
 {
     struct voice *best = 0;
     unsigned best_score = 0;
@@ -340,13 +366,14 @@ static LUSH_CODE struct voice *allocate(unsigned want_ks)
         struct voice *v = &voices[want_ks ? n : VOICES - 1U - n];
         if (!v->active) return v;
         /* Prefer stealing released, quiet, old voices. */
-        unsigned score = (uint16_t)(voice_clock - v->age) + (v->amp.stage == STAGE_RELEASE ? 40000U : 0U)
+        unsigned score = (uint16_t)(voice_clock - v->age) + (v->amp.stage == STAGE_RELEASE ? 40000U : 0U) + (v->kill ? 80000U : 0U)
                        + (unsigned)((ONE30 - v->amp.level) >> 20);
         if (!best || score > best_score) { best = v; best_score = score; }
     }
     return best;
 }
-static LUSH_CODE void start_voice(unsigned track, unsigned note, unsigned velocity, unsigned patch_id)
+/* Per note, not per sample: built for size. */
+static LUSH_CODE __attribute__((minsize)) void start_voice(unsigned track, unsigned note, unsigned velocity, unsigned patch_id)
 {
     const struct patch *p = &patches[patch_id];
     unsigned zone = 0, target = note;
@@ -361,11 +388,27 @@ static LUSH_CODE void start_voice(unsigned track, unsigned note, unsigned veloci
         }
         if (best == 1000) return; /* no samples loaded */
     }
+    /* Per-layer polyphony keeps the CPU bounded: basses are mono, synth layers
+     * keep three notes, strings four, samples six. Over the limit, the layer's
+     * oldest note fades out in ~4 ms. */
+    unsigned cap = patch_id == LUSH_WARM_BASS || patch_id == LUSH_SUB || patch_id == LUSH_DETUNE_BASS ? 1U
+                 : p->ks == 2 ? (p->reverse ? 2U : 6U) : p->ks == 1 ? 4U : 3U;
+    for (;;) {
+        struct voice *oldest = 0; unsigned count = 0;
+        for (unsigned i = 0; i < VOICES; ++i) {
+            struct voice *o = &voices[i];
+            if (!o->active || o->kill || o->track != track) continue;
+            ++count;
+            if (!oldest || (uint16_t)(voice_clock - o->age) > (uint16_t)(voice_clock - oldest->age)) oldest = o;
+        }
+        if (count < cap || !oldest) break;
+        oldest->kill = 1; oldest->filter.stage = STAGE_RELEASE;
+    }
     struct voice *v = allocate(p->ks == 1 || p->reverse); /* reverse reuses string memory as its chunk cache */
     if (!v) return;
     unsigned index = (unsigned)(v - voices);
     uint32_t seed = v->random ^ (note * 2654435761U) ^ voice_clock;
-    v->active = 1; v->track = (uint8_t)track; v->note = (uint8_t)note; v->patch = (uint8_t)patch_id;
+    v->active = 1; v->kill = 0; v->track = (uint8_t)track; v->note = (uint8_t)note; v->patch = (uint8_t)patch_id;
     v->age = ++voice_clock; v->random = seed | 1U;
     int32_t vel = (int32_t)velocity * 258;                                  /* Q15 */
     v->velocity = 32768 - (((32768 - vel) * p->velocity) >> 7);
@@ -441,7 +484,7 @@ static LUSH_CODE void start_voice(unsigned track, unsigned note, unsigned veloci
     }
     voice_tick(v, p);
 }
-LUSH_CODE void lush_note(unsigned track, unsigned note, unsigned velocity)
+__attribute__((minsize)) LUSH_CODE void lush_note(unsigned track, unsigned note, unsigned velocity)
 {
     if (track >= TRACKS || note > 127) return;
     unsigned patch_id = layer[track].patch;
@@ -455,12 +498,20 @@ LUSH_CODE void lush_note(unsigned track, unsigned note, unsigned velocity)
         }
     }
 }
-LUSH_CODE void lush_track_reset(unsigned track)
+__attribute__((minsize)) LUSH_CODE void lush_track_reset(unsigned track)
 {
     for (unsigned i = 0; i < VOICES; ++i)
         if (voices[i].active && voices[i].track == track) {
             voices[i].amp.stage = STAGE_RELEASE; voices[i].filter.stage = STAGE_RELEASE;
         }
+}
+
+__attribute__((minsize)) LUSH_CODE void lush_transport(uint8_t status)
+{
+    if (status == 0xfa) beat_phase = 0;
+    /* Stop/pause sends no note-offs: release every note so nothing hangs. */
+    if (status == 0xfc || status == 0xff)
+        for (unsigned i = 0; i < VOICES; ++i) { voices[i].amp.stage = STAGE_RELEASE; voices[i].filter.stage = STAGE_RELEASE; }
 }
 
 /* Saturation then a 4-pole state-variable low-pass (two Chamberlin stages). */
@@ -801,9 +852,10 @@ static inline LUSH_CODE int32_t soft_limit(int32_t x)
 {
     /* Transparent below ~0.7, rounds off peaks instead of hard clipping. */
     const int32_t knee = 23000;
-    if (x > knee) { int32_t over = x - knee; return knee + (over * 9830) / (9830 + over); }
-    if (x < -knee) { int32_t over = -knee - x; return -knee - (over * 9830) / (9830 + over); }
-    return x;
+    int32_t over = (x < 0 ? -x : x) - knee;
+    if (over <= 0) return x;
+    over = knee + (over * 9830) / (9830 + over);
+    return x < 0 ? -over : over;
 }
 
 LUSH_CODE void lush_render(int32_t *output)
@@ -822,7 +874,12 @@ LUSH_CODE void lush_render(int32_t *output)
     for (unsigned i = 0; i < N; ++i) bus_chorus[i] = bus_reverb[i] = bus_delay[i] = 0;
     unsigned voicing = 0;
     for (unsigned i = 0; i < VOICES; ++i)
-        if (voices[i].active) { render_voice(&voices[i]); voicing = 1; }
+        if (voices[i].active) {
+#if FM1_HOST_TEST
+            ++lush_stat[patches[voices[i].patch].ks == 2 ? 1 : 0];
+#endif
+            render_voice(&voices[i]); voicing = 1;
+        }
     if (!any && !voicing) return; /* effects tails are allowed to stop with the engine */
 
     int32_t wet = fx_wet, feedback = fx_feedback;
