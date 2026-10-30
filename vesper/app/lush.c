@@ -382,6 +382,11 @@ uint32_t lush_stat[2]; /* voice-blocks rendered: synth/string/modal, sample */
 static int16_t ks_memory[KS_VOICES][KS_LEN] __attribute__((aligned(4))) VESPER_BIG; /* cleared as words */
 
 static inline LUSH_HOT int32_t clamp15(int32_t v) { return v > 32767 ? 32767 : v < -32768 ? -32768 : v; }
+/* VESPER 2: a * b >> 15 and a * f >> 16 without a 64-bit multiply (each would go out of line on the FM-1,
+ * felucca-bsp docs/CPU.md). Exact, the same as the 64-bit forms, for |b| < 2^16, f < 2^16 and |a| < 2^30. */
+static inline LUSH_HOT int32_t mq15(int32_t a, int32_t b) { return (a >> 15) * b + (((a & 0x7FFF) * b) >> 15); }
+static inline LUSH_HOT int32_t mq16u(int32_t a, uint32_t f)
+{ return (a >> 16) * (int32_t)f + (int32_t)(((uint32_t)(a & 0xFFFF) * f) >> 16); }
 static inline LUSH_HOT uint32_t rng(uint32_t *s) { *s = *s * 1664525U + 1013904223U; return *s; }
 static inline LUSH_HOT int32_t noise15(uint32_t *s) { return (int32_t)(rng(s) >> 17) - 16384; }
 
@@ -731,12 +736,12 @@ static inline LUSH_HOT int32_t warm_filter(int32_t osc, const struct patch *p, i
     int32_t x2 = (x * x) >> 15;
     x = (3 * x - ((x2 * x) >> 15)) >> 1;
 #endif
-    *lp1 += (int32_t)(((int64_t)f * *bp1) >> 15);
-    int32_t hp = x - *lp1 - (int32_t)(((int64_t)q * *bp1) >> 15);
-    *bp1 += (int32_t)(((int64_t)f * hp) >> 15);
-    *lp2 += (int32_t)(((int64_t)f * *bp2) >> 15);
-    hp = *lp1 - *lp2 - (int32_t)(((int64_t)44000 * *bp2) >> 15);
-    *bp2 += (int32_t)(((int64_t)f * hp) >> 15);
+    *lp1 += mq15(*bp1, f);
+    int32_t hp = x - *lp1 - mq15(*bp1, q);
+    *bp1 += mq15(hp, f);
+    *lp2 += mq15(*bp2, f);
+    hp = *lp1 - *lp2 - mq15(*bp2, 44000);
+    *bp2 += mq15(hp, f);
     if (*bp1 > (1 << 20) || *bp1 < -(1 << 20)) *bp1 >>= 1;
     if (*bp2 > (1 << 20) || *bp2 < -(1 << 20)) *bp2 >>= 1;
     return *lp2;
@@ -773,7 +778,7 @@ static int32_t bus_dry[2 * N], bus_chorus[N], bus_reverb[N], bus_delay[N];
 static LUSH_CODE void render_voice(struct voice *v)
 {
     const struct patch *p = &voice_patch[v->track];
-    int32_t gain = (int32_t)(((int64_t)layer[v->track].gain * v->velocity) >> 15);
+    int32_t gain = mq15(layer[v->track].gain, v->velocity);
     gain = (gain * p->gain) >> 7;
     int32_t send_r = layer[v->track].reverb, send_d = layer[v->track].delay;
     int32_t pan = v->pan + p->pos;
@@ -800,7 +805,7 @@ static LUSH_CODE void render_voice(struct voice *v)
             if (p->ks == 3) {
                 int32_t sum = 0;
                 for (unsigned q = 0; q < 4; ++q) {
-                    sum += (int32_t)(((int64_t)sine15(v->phase[q]) * (v->modal_level[q] >> 15)) >> 15);
+                    sum += mq15(sine15(v->phase[q]), v->modal_level[q] >> 15);
                     v->phase[q] += v->inc[q];
                 }
                 s = sum;
@@ -822,24 +827,24 @@ static LUSH_CODE void render_voice(struct voice *v)
                     }
                     ab[e] = ks_memory[index][pos % FM1_SEA_FRAMES];
                 }
-                int32_t x = ab[0] + (int32_t)(((int64_t)(ab[1] - ab[0]) * (int32_t)v->sample_frac) >> 16);
+                int32_t x = ab[0] + mq16u(ab[1] - ab[0], v->sample_frac);
                 v->sample_frac += v->sample_step;
                 uint32_t back = v->sample_frac >> 16; v->sample_frac &= 0xffffU;
                 v->sample_pos = v->sample_pos > back ? v->sample_pos - back : 0U;
-                v->lp1 += (int32_t)(((int64_t)(x - v->lp1) * (v->f - (v->f >> 2))) >> 15); /* two-pole tone */
-                v->lp2 += (int32_t)(((int64_t)(v->lp1 - v->lp2) * (v->f - (v->f >> 2))) >> 15);
+                v->lp1 += mq15(x - v->lp1, v->f - (v->f >> 2)); /* two-pole tone */
+                v->lp2 += mq15(v->lp1 - v->lp2, v->f - (v->f >> 2));
                 s = v->lp2 + (v->lp2 >> 1);
                 if (v->sample_next == 0xfffffffeU) { v->amp.stage = STAGE_RELEASE; v->amp.level >>= 2; }
             } else if (p->ks == 2) {
                 int32_t a = sample_at(v, v->sample_pos), b = sample_at(v, v->sample_pos + 1U);
-                int32_t x = a + (int32_t)(((int64_t)(b - a) * (int32_t)v->sample_frac) >> 16);
+                int32_t x = a + mq16u(b - a, v->sample_frac);
                 v->sample_frac += v->sample_step;
                 v->sample_pos += v->sample_frac >> 16; v->sample_frac &= 0xffffU;
                 /* Samples run at full rate, so a two-pole tone stage stands in for
                  * the 4-pole ladder: the velocity-tracked darkening stays, at a
                  * fraction of the cost (sample-heavy scenes were the ones overloading). */
-                v->lp1 += (int32_t)(((int64_t)(x - v->lp1) * (v->f - (v->f >> 2))) >> 15);
-                v->lp2 += (int32_t)(((int64_t)(v->lp1 - v->lp2) * (v->f - (v->f >> 2))) >> 15);
+                v->lp1 += mq15(x - v->lp1, v->f - (v->f >> 2));
+                v->lp2 += mq15(v->lp1 - v->lp2, v->f - (v->f >> 2));
                 s = v->lp2 + (v->lp2 >> 1); /* the ladder's saturator had 1.5x small-signal gain */
                 if (v->sample_next == 0xfffffffeU) { v->amp.stage = STAGE_RELEASE; v->amp.level >>= 1; }
             } else if (p->ks == 1) {
@@ -893,11 +898,11 @@ static LUSH_CODE void render_voice(struct voice *v)
                     static FM1_AUDIO_DATA const int32_t mix[3] = {11000, 7700, 3300};
                     int32_t *lp[3] = {&v->lp1, &v->lp2, &v->rl1}, *bp[3] = {&v->bp1, &v->bp2, &v->rb1};
                     for (unsigned k = 0; k < 3; ++k) {
-                        *lp[k] += (int32_t)(((int64_t)v->formant_f[k] * *bp[k]) >> 15);
+                        *lp[k] += mq15(*bp[k], v->formant_f[k]);
                         int32_t h = x - *lp[k] - ((5900 * *bp[k]) >> 15);
-                        *bp[k] += (int32_t)(((int64_t)v->formant_f[k] * h) >> 15);
+                        *bp[k] += mq15(h, v->formant_f[k]);
                         if (*bp[k] > (1 << 20) || *bp[k] < -(1 << 20)) *bp[k] >>= 1;
-                        y += (int32_t)(((int64_t)*bp[k] * mix[k]) >> 15);
+                        y += mq15(*bp[k], mix[k]);
                     }
                     s = y;
                 } else {
@@ -909,12 +914,12 @@ static LUSH_CODE void render_voice(struct voice *v)
                 v->last_l = now_l; v->last_r = now_r;
             }
             amp += step;
-            int32_t out = (int32_t)(((int64_t)s * amp) >> 15);
-            out = (int32_t)(((int64_t)out * gain) >> 15);
+            int32_t out = mq15(s, amp);
+            out = mq15(out, gain);
             unsigned j = at + k;
             if (p->stereo) {
-                int32_t outr = (int32_t)(((int64_t)s_right * amp) >> 15);
-                outr = (int32_t)(((int64_t)outr * gain) >> 15);
+                int32_t outr = mq15(s_right, amp);
+                outr = mq15(outr, gain);
                 bus_dry[2 * j] += (out * bal_l) >> 15;
                 bus_dry[2 * j + 1] += (outr * bal_r) >> 15;
                 out = (out + outr) >> 1; /* sends are mono */
@@ -1153,7 +1158,7 @@ static inline LUSH_HOT void reverb_sample(int32_t input, int32_t out[2])
      * octave is smeared and darkened by the reverb itself. */
     int32_t shim = 0, shim_direct = 0;
     if (fx_shimmer) {
-        shim = (int32_t)(((int64_t)shimmer_sample((rev_out[0] + rev_out[1]) >> 1) * fx_shimmer) >> 15);
+        shim = mq15(shimmer_sample((rev_out[0] + rev_out[1]) >> 1), fx_shimmer);
         shim_direct = (shim * 3) >> 2; /* 1.0: louder shimmer straight to the reverb output too */
         input += shim >> 2;
         shim = (shim * 3) >> 3; /* three eighths into each side of the loop */
@@ -1210,7 +1215,7 @@ static inline LUSH_HOT int32_t analog(unsigned ch, int32_t x)
 }
 static inline LUSH_HOT int32_t dc_block(unsigned ch, int32_t x)
 {
-    int32_t y = ((x - dc_in[ch]) << 8) + (int32_t)(((int64_t)dc_out[ch] * 32675) >> 15);
+    int32_t y = ((x - dc_in[ch]) << 8) + mq15(dc_out[ch], 32675);
     dc_in[ch] = x; dc_out[ch] = y;
     return y >> 8;
 }
@@ -1420,7 +1425,7 @@ LUSH_CODE void lush_render(int32_t *output)
             l += (gl * grain_wet) >> 15; r += (gr * grain_wet) >> 15;
         }
         if (width != 32768) { /* CLOUD width, last in the chain */
-            int32_t m = (l + r) >> 1, side = (int32_t)(((int64_t)((l - r) >> 1) * width) >> 15);
+            int32_t m = (l + r) >> 1, side = mq15((l - r) >> 1, width);
             l = m + side; r = m - side;
         }
         if (level_thr) { /* LEVEL: smooth 2:1 leveler, linked stereo, ~1 ms attack, ~0.25 s release */
@@ -1438,7 +1443,7 @@ LUSH_CODE void lush_render(int32_t *output)
                 level_target = target;
             }
             level_gain += (level_target - level_gain) >> 6;
-            l = (int32_t)(((int64_t)l * level_gain) >> 15); r = (int32_t)(((int64_t)r * level_gain) >> 15);
+            l = mq15(l, level_gain); r = mq15(r, level_gain);
         }
         if (out_gain != 4096) { l = (l * out_gain) >> 12; r = (r * out_gain) >> 12; }
         /* -1 dB bus trim keeps the limiter for rare peaks only. */
