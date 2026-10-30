@@ -38,7 +38,10 @@ The global effects:
 1. Open **FM1-VESPER-1.1.0-Updater.html** (from the release) in Chrome or Edge and connect the FM-1 by USB.
 2. Install from M-VAVE's original V15, or from another open firmware.
    - If your unit runs a Felucca-family firmware, restore V15 with that firmware's installer first.
-3. **Samples:** the piano, marimba and glockenspiel voices use VESPER's sample bank, [`docs/WORSHIP-SAMPLES.bin`](docs/WORSHIP-SAMPLES.bin). Write it once with the updater's sample tools. The recordings are CC0, from VSCO-2 CE; see [docs/SAMPLE-CREDITS.md](docs/SAMPLE-CREDITS.md).
+3. **Samples:** the piano, marimba and glockenspiel voices use VESPER's own sample bank (CC0 recordings from VSCO-2 CE; see [docs/SAMPLE-CREDITS.md](docs/SAMPLE-CREDITS.md)). The updater installs it with the firmware.
+   - If the FM-1 has no sample bank yet, it is written automatically.
+   - If the FM-1 already has samples (V15's or another firmware's), the updater asks first, because writing replaces all 8 slots.
+   - The bank is also in the release as `VESPER-SAMPLES.bin`.
 4. To leave VESPER, use the same updater page: **Restore original V15**, or install any other firmware.
 
 Back up your projects before switching firmware. Project formats differ between firmwares.

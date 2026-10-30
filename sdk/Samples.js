@@ -53,7 +53,16 @@
       try{info=await workbench.sampleInfo();}
       catch(error){if(attempt===9)throw error;await new Promise(resolve=>setTimeout(resolve,500));continue;}
       const state=status(info);
-      if(state===2)return;
+      if(state===2){
+        /* VESPER: a bank is already there (V15's or another firmware's). VESPER's voices
+           need its own piano / marimba / glock samples, so offer to write them. */
+        if(workbench.offerReplace&&await workbench.offerReplace()){
+          const data=await factory();read(data);
+          report('Writing the VESPER samples. Keep USB and power connected…');
+          await workbench.samplesWrite(data,progress);report('VESPER samples written.');
+        }
+        return;
+      }
       if(state===0){
         const data=await factory();read(data);
         report('正在初始化内置采样，请保持 USB 与供电…');

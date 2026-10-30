@@ -698,7 +698,8 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
     }else if(completed){
       try {status('固件已更新，正在检查采样区…');await FM1EnsureSamples({
         sampleInfo:()=>deviceProject(l=>l.query(11),false,true),
-        samplesWrite:(data,progress)=>writeDeviceSamples(data,progress,undefined,true)
+        samplesWrite:(data,progress)=>writeDeviceSamples(data,progress,undefined,true),
+        offerReplace:async()=>confirm('VESPER plays its own piano, marimba and glockenspiel samples.\n\nWrite them to the FM-1 now? This replaces all 8 sample slots on the device. Back up any custom samples first if you want to keep them.')
       });updateResult='ready';status('固件与采样区均已就绪。',100);}
       catch(error){updateResult='samples';FM1I18n.text($('error'),error.message);status('固件已更新；采样初始化未完成，请在采样页写入内置采样库。',100);}
       finally{finishingUpdate=false;enable();}
