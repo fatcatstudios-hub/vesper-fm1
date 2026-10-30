@@ -2844,28 +2844,29 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         goto controls_done;
     }
     if ((page == OVERVIEW || page == MIX || page >= V_EDIT) && !glo_down && controls->encoders[6]) {
-        /* 2.0: PRESETS runs through one list, the 16 scenes and then the saved user projects (empty slots
-         * skipped), so user presets are a turn away (1.x kept them in a bank the knob never reached). */
+        /* 2.0: PRESETS steps through the 16 scenes; with SEL held, through the saved user projects instead
+         * (empty slots skipped). 1.x kept the user projects in a bank the knob never reached. */
         int dir = controls->encoders[6] > 0 ? 1 : -1, steps = controls->encoders[6] * dir;
-        int at = preset_loaded ? (preset_current_bank ? (int)preset_current_slot : 16 + (int)preset_current_slot)
-                               : dir > 0 ? -1 : 16;
-        int to = at;
+        unsigned user = sel_held != 0;
+        int at = preset_loaded && (preset_current_bank == 0) == user ? (int)preset_current_slot : dir > 0 ? -1 : 16;
+        int to = -1;
         for (int k = 0, p = at; k < steps; ++k) {
-            for (p += dir; p >= 16 && p < 32; p += dir) {
+            for (p += dir; user && p >= 0 && p < 16; p += dir) {
                 char nm[13];
-                if (groove_project_info((unsigned)(p - 16), nm) == 0) break;   /* a saved project */
+                if (groove_project_info((unsigned)p, nm) == 0) break;   /* a saved project */
             }
-            if (p < 0 || p >= 32) break;
+            if (p < 0 || p >= 16) break;
             to = p;
         }
-        if (to >= 0 && (!preset_loaded || to != at)) {
+        if (to < 0 && user && at < 0) { notice = "NO USER PRESETS YET - SAVE ONE"; notice_until = now + 2000U; }
+        if (to >= 0 && (!preset_loaded || to != at || (preset_current_bank == 0) != user)) {
             struct groove_view view = {0}; groove_get_view(track, cursor, &view);
-            preset_bank = to < 16; preset_slot = (unsigned)(to % 16); preset_refresh();
+            preset_bank = !user; preset_slot = (unsigned)to; preset_refresh();
             preset_load(view.playing, now);
-            if (to >= 16) {
+            if (user) {
                 static char user_notice[24];
                 strcpy(user_notice, "USER 00");
-                user_notice[5] = (char)('0' + (to - 15) / 10); user_notice[6] = (char)('0' + (to - 15) % 10);
+                user_notice[5] = (char)('0' + (to + 1) / 10); user_notice[6] = (char)('0' + (to + 1) % 10);
                 notice = user_notice; notice_until = now + 1500U;
             }
         }
