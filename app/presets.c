@@ -542,8 +542,11 @@ void vesper_fx_edit(unsigned i, int delta)
     fx_apply();
     groove_project_touch();
 }
+static uint8_t project_events; /* bumped on every save and load: the header * starts over */
+uint8_t vesper_project_events(void) { return project_events; }
 void vesper_project_store(struct groove_project *p)
 {
+    ++project_events;
     unsigned fx_saved = 0;
     for (unsigned t = 0; t < LAYERS; ++t)
         if (p->preset[t].type == GROOVE_PSG) {
@@ -557,7 +560,7 @@ void vesper_project_store(struct groove_project *p)
 }
 void vesper_project_loading(const struct groove_project *p)
 {
-    pending_ok = 0; fx_pending_ok = 0; ++loads;
+    pending_ok = 0; fx_pending_ok = 0; ++loads; ++project_events;
     for (unsigned t = 0; p && t < LAYERS; ++t)
         if (p->preset[t].type == GROOVE_PSG && p->preset[t].data[4] == 'V') {
             memcpy(pending[t], p->preset[t].data + 4, LUSH_VOICE_BYTES);

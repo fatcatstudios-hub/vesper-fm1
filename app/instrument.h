@@ -207,6 +207,7 @@ int groove_project_capture(struct groove_project *p);
 int groove_project_valid(const struct groove_project *p);
 /* VESPER: carry LUSH voice edits inside saved / loaded projects. NULL = factory scene. */
 void vesper_project_store(struct groove_project *p);
+uint8_t vesper_project_events(void);       /* changes on every project save or load */
 unsigned vesper_fx_get(unsigned i);      /* VESPER global FX 0..11, 0..127 */
 void vesper_fx_edit(unsigned i, int delta);
 unsigned vesper_space_get(void);         /* HOME K2 SPACE macro, 0..127 */

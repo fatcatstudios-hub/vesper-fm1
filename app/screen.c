@@ -276,7 +276,7 @@ static unsigned seq_down;
 static uint32_t seq_ms;
 static unsigned arp_down, arp_long;
 static unsigned v_edit, v_filter_env, play_mode, v_global_row;
-static unsigned battery_adc = 900; /* smoothed battery ADC */
+static unsigned battery_adc = 900, preset_edited; /* smoothed battery ADC; header * */
 /* GLO diagnostics for the last page change: ms painting bands, ms deciding what changed, passes, bands. */
 /* VESPER page state; ARP = play mode */
 static uint32_t arp_ms;
@@ -314,7 +314,7 @@ static char edit_character(char old, int delta)
 }
 struct draw_cache {
     unsigned shown_page;
-    uint32_t header_cache, title_cache, middle_cache, hint_cache, hold_cache, seq_cache;
+    uint32_t header_cache, title_cache, middle_cache, hint_cache, hold_cache, seq_cache, name_cache;
     uint32_t foot_cache[4], row_cache[8], middle_shape, cell_cache[8][16], tile_cache[16];
     unsigned meter_cache[8];
 };
@@ -565,17 +565,30 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
     uint32_t sig = percent | ((uint32_t)beat << 10) |
         ((uint32_t)v->playing << 16) | (writing << 17) |
         ((uint32_t)v->clock_mode << 18) | ((uint32_t)v->clock_state << 19) | (play_mode << 22) |
-        ((uint32_t)(v->sequence_length >> 4) << 24) | (groove_project_dirty() << 27) | (paused << 28) | (count << 29);
-    if (sig == cache->header_cache)
-        return;
-    uint32_t previous = cache->header_cache, changed = sig ^ previous;
+        ((uint32_t)(v->sequence_length >> 4) << 24) | (paused << 28) | (count << 29);
+    uint32_t previous = cache->header_cache;
     unsigned first = previous == ~0U;
-    cache->header_cache = sig;
-    if (first) {
-        paint_fill(0, 0, 240, 30, BACK);
+    if (first) paint_fill(0, 0, 240, 30, BACK);
+    {   /* The preset name, big in the top-right corner; a small * once it is edited. */
+        char name[13]; groove_project_name(name); name[12] = 0;
+        unsigned n = 12;
+        while (n && name[n - 1] == ' ') --n;
+        name[n] = 0;
+        unsigned dirty = preset_edited != 0;
+        uint32_t named = signature(dirty * 2U + writing, name, n);
+        if (first || named != cache->name_cache) {
+            cache->name_cache = named;
+            paint_fill(92, 4, 148, 22, BACK);
+            unsigned scale = n <= 11U ? 2U : 1U, width = n * 6U * scale;
+            unsigned x = 229U - (width > 137U ? 137U : width);
+            text(x, scale == 2U ? 8U : 11U, name, scale, writing ? AMBER : TEXT, BACK);
+            if (dirty) text(232, 6, "*", 1, ACCENT, BACK);
+        }
     }
-    if (first || (changed & (1U << 27)))
-        text(165, 19, groove_project_dirty() ? "*" : " ", 1, AMBER, BACK);
+    if (sig == previous)
+        return;
+    uint32_t changed = sig ^ previous;
+    cache->header_cache = sig;
     /* Fixed-width glyphs replace their own background; a moving playhead
      * only updates its two digits and, at a page boundary, two indicators. */
     if (first || (changed & 1023U)) {
@@ -588,20 +601,13 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
             paint_fill(11 + 5 * i, 9, 4, 8, percent > i * 25U ? fill : PANEL);
     }
     if (first || (changed & ((1U << 16) | (1U << 28))))
-        text(80, 7, v->playing ? "PLAY " : paused ? "PAUSE" : "STOP ", 1,
+        text(42, 7, v->playing ? "PLAY " : paused ? "PAUSE" : "STOP ", 1,
              v->playing ? GREEN : paused ? AMBER : DIM, BACK);
     if (first || (changed & (63U << 10))) {
         char at[4] = {(char)('1' + beat / 4U), '.', (char)('1' + beat % 4U), 0};
-        text(112, 7, at, 1, TEXT, BACK);
+        text(42, 17, at, 1, TEXT, BACK);
     }
-    if (first || (changed & ((1U << 16) | (1U << 17) | (1U << 22) | (7U << 29)))) {
-        /* Recording, else KEYS while ARP has the keys playing the voice, else nothing. */
-        uint16_t color = writing ? AMBER : play_mode ? GREEN : BACK;
-        paint_fill(181, 7, 51, 16, color);
-        char counting[] = "CNT 4"; counting[4] = (char)('0' + count);
-        if (writing || play_mode)
-            text(192, 12, writing ? count ? counting : v->playing ? "REC" : "STEP" : "KEYS", 1, BACK, color);
-    }
+
 }
 /* HOME, worship edition: the crystal orbit. The four layers are concentric
  * rings of crystal diamonds, one per step of the current 16-step page; the
@@ -623,12 +629,20 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
     unsigned first = step_first(&v[track]);
     char scene[13]; groove_project_name(scene);
     const char *root = worship_chord_root(), *quality = worship_chord_quality();
-    uint32_t title = signature(signature(first, scene, 12), root ? root : "", 2) ^ (uint32_t)(uintptr_t)quality;
+    unsigned count = (groove_sequence_count_in() + 3U) / 4U;
+    uint32_t title = signature(signature(first, scene, 12), root ? root : "", 2) ^ (uint32_t)(uintptr_t)quality
+                   ^ (play_mode << 28) ^ (writing << 29) ^ ((uint32_t)v[track].playing << 30) ^ (count << 24);
     if (title != cache->title_cache) {
         cache->title_cache = title;
         paint_fill(ORBIT_X - 24, ORBIT_Y - 16, 49, 33, BACK);   /* inside the inner ring */
         paint_fill(158, 32, 82, 12, BACK);
-        text(160, 34, scene, 1, ACCENT, BACK);
+        if (writing || play_mode) { /* PLAY while ARP has the keys playing the voice; REC while recording */
+            char counting[] = "CNT 4"; counting[4] = (char)('0' + (count > 4U ? 4U : count));
+            const char *badge = writing ? count ? counting : v[track].playing ? "REC" : "STEP" : "PLAY";
+            uint16_t color = writing ? AMBER : GREEN;
+            paint_fill(160, 32, (unsigned)strlen(badge) * 6U + 8U, 12, color);
+            text(164, 35, badge, 1, BACK, color);
+        }
         if (root) { /* "E", "Bb", "C#m" big; "sus2" / "sus4" underneath */
             char name[4] = {0};
             strcpy(name, root);
@@ -1897,7 +1911,7 @@ static void draw_page_body(const struct fm1_ble_status *ble)
         cache->shown_page = visible;
         paint_fill(0, 0, 240, 240, BACK);
         if (visible != STARTUP) paint_fill(0, 29, 240, 1, PANEL);
-        cache->header_cache = cache->title_cache = cache->middle_cache = cache->hint_cache = cache->hold_cache = cache->seq_cache = ~0U;
+        cache->header_cache = cache->title_cache = cache->middle_cache = cache->hint_cache = cache->hold_cache = cache->seq_cache = cache->name_cache = ~0U;
         memset(cache->foot_cache, 0xff, sizeof cache->foot_cache);
         memset(cache->row_cache, 0xff, sizeof cache->row_cache);
         memset(cache->cell_cache, 0xff, sizeof cache->cell_cache);
@@ -2424,6 +2438,15 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     previous_buttons = controls->buttons;
     previous_keys = controls->keys;
     blocked_keys &= controls->keys;
+    {   /* Header *: something was changed since the preset/project was loaded or saved. */
+        static uint8_t events_seen;
+        uint8_t events = vesper_project_events();
+        if (events != events_seen) { events_seen = events; preset_edited = 0; }
+        if (page != PROJECT && page != PRESET_BROWSER &&
+            (controls->encoders[2] || controls->encoders[3] || controls->encoders[4] || controls->encoders[5]))
+            preset_edited = 1;
+        if (key_down && (writing || (!play_mode && page != STEPS && page != ACTIONS))) preset_edited = 1;
+    }
     if (pressed || encoder_active(controls->encoders)) notice = NULL;
     if (retry_reset) {
         blocked_keys = controls->keys;
