@@ -27,22 +27,32 @@ static void seed(const uint8_t *chunk, int32_t state[8])
 static void group(const uint8_t *chunk, unsigned bits, const int16_t *dqt,
                   unsigned g, int32_t state[8], int16_t pcm[FM1_SEA_GROUP])
 {
-    unsigned scale = (chunk[20 + g/2] >> ((g & 1) ? 0 : 4)) & 15;
-    for (unsigned i = 0; i < FM1_SEA_GROUP; ++i) {
-        unsigned at = (g * FM1_SEA_GROUP + i) * bits, code = 0;
-        for (unsigned b = 0; b < bits; ++b)
-            code = (code << 1) | ((chunk[28 + (at+b)/8] >> (7-(at+b)%8)) & 1);
-        int64_t sum = 0;
-        for (unsigned j = 0; j < 4; ++j) sum += (int64_t)state[j] * state[4+j];
-        int32_t residual = dqt[(scale << bits) + code];
+    /* VESPER 2: the same decode, faster (the FM-1 decodes samples in the audio interrupt): each code read from a
+     * 16-bit window instead of bit by bit, the predictor in locals, and the history (saturated to 16 bits) times
+     * the weights (likewise) as 32-bit products summed in 64 bits: no 64-bit multiply. Bit-exact with the original. */
+    const unsigned scale = (chunk[20 + g/2] >> ((g & 1) ? 0 : 4)) & 15, mask = (1U << bits) - 1U;
+    const int16_t *q = dqt + (scale << bits);
+    const uint8_t *data = chunk + 28;
+    int32_t s0 = state[0], s1 = state[1], s2 = state[2], s3 = state[3];
+    int32_t w0 = state[4], w1 = state[5], w2 = state[6], w3 = state[7];
+    unsigned at = g * FM1_SEA_GROUP * bits;
+    for (unsigned i = 0; i < FM1_SEA_GROUP; ++i, at += bits) {
+        unsigned byte = at >> 3, sh = at & 7U, win = (unsigned)data[byte] << 8;
+        if (sh + bits > 8U) win |= data[byte + 1];
+        unsigned code = (win >> (16U - bits - sh)) & mask;
+        int64_t sum = (int64_t)(s0 * w0) + (int64_t)(s1 * w1) + (int64_t)(s2 * w2) + (int64_t)(s3 * w3);
+        int32_t residual = q[code];
         int32_t value = clamp16((int32_t)(sum >> 13) + residual);
         int32_t delta = residual >> 4;
-        for (unsigned j = 0; j < 4; ++j)
-            state[4+j] = clamp16(state[4+j] + (state[j] < 0 ? -delta : delta));
-        for (unsigned j = 0; j < 3; ++j) state[j] = state[j+1];
-        state[3] = value;
+        w0 = clamp16(w0 + (s0 < 0 ? -delta : delta));
+        w1 = clamp16(w1 + (s1 < 0 ? -delta : delta));
+        w2 = clamp16(w2 + (s2 < 0 ? -delta : delta));
+        w3 = clamp16(w3 + (s3 < 0 ? -delta : delta));
+        s0 = s1; s1 = s2; s2 = s3; s3 = value;
         pcm[i] = (int16_t)value;
     }
+    state[0] = s0; state[1] = s1; state[2] = s2; state[3] = s3;
+    state[4] = w0; state[5] = w1; state[6] = w2; state[7] = w3;
 }
 int fm1_sea_decode(const uint8_t *chunk, size_t bytes, unsigned bits,
                    const int16_t *dqt, int16_t pcm[FM1_SEA_FRAMES])
