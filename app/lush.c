@@ -931,6 +931,7 @@ static inline LUSH_HOT int32_t chorus_tap(uint32_t delay_q16)
  * half-rate chorus lines, swept by the same LFO, so echoes and tails shimmer
  * with the chorus. 256 samples at 22 kHz covers the ~170-sample sweep. */
 static int16_t send_line[2][256];
+static int32_t send_shelf[2]; /* low-mid cut on the delay and reverb inputs */
 static uint8_t send_write;
 static inline LUSH_HOT int32_t send_chorus(unsigned which, int32_t x, uint32_t delay_q16, int32_t wet)
 {
@@ -978,10 +979,10 @@ static unsigned shimmer_write, shimmer_phase, shimmer_odd;
 static int32_t shimmer_lp1, shimmer_lp2, shimmer_hp, shimmer_held, shimmer_prev, shimmer_y, shimmer_soft, shimmer_soft2;
 static inline LUSH_HOT int32_t shimmer_sample(int32_t input)
 {
-    /* 22 kHz in: ~2 kHz 12 dB low pass, ~180 Hz high pass, then every other sample. */
-    shimmer_lp1 += ((input - shimmer_lp1) * 14500) >> 15;
-    shimmer_lp2 += ((shimmer_lp1 - shimmer_lp2) * 14500) >> 15;
-    shimmer_hp += ((shimmer_lp2 - shimmer_hp) * 1640) >> 15;
+    /* 22 kHz in: ~2.5 kHz 12 dB low pass, ~300 Hz high pass, then every other sample. */
+    shimmer_lp1 += ((input - shimmer_lp1) * 16700) >> 15;
+    shimmer_lp2 += ((shimmer_lp1 - shimmer_lp2) * 16700) >> 15;
+    shimmer_hp += ((shimmer_lp2 - shimmer_hp) * 2700) >> 15;
     int32_t x = shimmer_lp2 - shimmer_hp;
     int32_t up;
     if ((shimmer_odd ^= 1U)) { shimmer_held = x; up = shimmer_y; } /* linear interpolation, one sample late */
@@ -1060,8 +1061,8 @@ static inline LUSH_HOT void grain_spawn(struct grain *g, int32_t amount, int32_t
 }
 static inline LUSH_HOT void cloud_sample(int32_t input, int32_t amount, int32_t out[2])
 {
-    grain_hp += ((input - grain_hp) * 1100) >> 15;                       /* ~120 Hz: no mud, no DC loop */
-    grain_lp += ((input - grain_hp - grain_lp) * 20000) >> 15;           /* ~3.4 kHz before 11 kHz storage */
+    grain_hp += ((input - grain_hp) * 2600) >> 15;                       /* ~280 Hz: no mud, no DC loop */
+    grain_lp += ((input - grain_hp - grain_lp) * 23000) >> 15;           /* ~4.3 kHz before 11 kHz storage */
     if (grain_w & 1U) grain_buf[grain_w >> 1] = mu_encode((grain_in + grain_lp) >> 1);
     else grain_in = grain_lp;
     /* On the tempo grid: eighths when GRAINS is low, sixteenths in the middle,
@@ -1340,6 +1341,10 @@ LUSH_CODE void lush_render(int32_t *output)
                 rsend = send_chorus(1, rsend, (base + (uint32_t)(32767 - tri) * depth) >> 1, send_wet);
                 ++send_write;
             }
+            /* Low-mid cut on what goes into the delay: everything below ~400 Hz
+             * about 8 dB down, so stacked effects do not build up mud (0.8.9). */
+            send_shelf[0] += ((in - send_shelf[0]) * 3526) >> 15;
+            in -= (send_shelf[0] * 5) >> 3;
             /* Tape echo: slow wow plus a little flutter bend the repeat time
              * (about +-0.3 %), and each pass is saturated and darkened. */
             tape_wow += 68000U;      /* ~0.35 Hz at 22.05 kHz */
@@ -1349,8 +1354,8 @@ LUSH_CODE void lush_render(int32_t *output)
             int32_t echo = delay_tap((uint32_t)((int32_t)dtime + bend));
             int32_t echo_r = delay_tap((uint32_t)((int32_t)dtime_r + bend));
             int32_t mix = (echo + echo_r) >> 1;
-            delay_lp += ((mix - delay_lp) * 9500) >> 15;               /* ~1.6 kHz: dark repeats */
-            delay_hp += ((delay_lp - delay_hp) * 300) >> 15;           /* remove low mud */
+            delay_lp += ((mix - delay_lp) * 13500) >> 15;              /* ~2.4 kHz: warm, not muddy, repeats */
+            delay_hp += ((delay_lp - delay_hp) * 1100) >> 15;          /* ~120 Hz: no low build-up */
             int32_t back = clamp15(delay_lp - delay_hp);
             int32_t b2 = (back * back) >> 15;
             back = back - (((b2 * back) >> 15) * 10923 >> 15);        /* tape saturation: x - x^3/3 */
@@ -1369,6 +1374,8 @@ LUSH_CODE void lush_render(int32_t *output)
                 rsend += (((grain_out[0] + grain_out[1]) >> 1) * grains_on * 100) >> 15;
             }
             int32_t rin = rsend + ((mix * 6000) >> 15);
+            send_shelf[1] += ((rin - send_shelf[1]) * 3526) >> 15;    /* same low-mid cut into the reverb */
+            rin -= (send_shelf[1] * 5) >> 3;
             rev_prev[0] = rev_out[0]; rev_prev[1] = rev_out[1];
             reverb_sample(rin, rev_out);
         }
