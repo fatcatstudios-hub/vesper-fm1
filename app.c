@@ -11,6 +11,7 @@ void vesper_control(void);
 void vesper_input(void);
 void vesper_render(int32_t *lr);
 void vesper_silence(void);
+void vesper_overload(void);
 int vesper_sysex(const uint8_t *p, uint32_t n);
 
 static volatile uint8_t ready;
@@ -47,8 +48,10 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         for (uint32_t i = 0; i < 2u * n; i++) lr[i] = 0;
         return;
     }
-    vesper_render(lr);
+    for (uint32_t k = 0; k < n; k += 128u)
+        vesper_render(lr + 2u * k);
 }
+void app_overload(void) { if (ready) vesper_overload(); }
 void app_panic(void) { if (ready) vesper_silence(); }
 void app_say(const char *a, const char *b) { (void)a; (void)b; }
 int app_sysex(const uint8_t *p, uint32_t n) { return ready ? vesper_sysex(p, n) : 0; }

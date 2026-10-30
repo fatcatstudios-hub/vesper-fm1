@@ -660,6 +660,21 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
         char at[4] = {(char)('1' + beat / 4U), '.', (char)('1' + beat % 4U), 0};
         text(42, 17, at, 1, TEXT, BACK);
     }
+#if VESPER_TEST
+    {   /* TEST builds: the audio load's peak (last second) and the dropouts since start, beside the beat */
+        extern unsigned vesper_load_peak(void), vesper_dropouts(void);
+        static unsigned shown = ~0U;
+        unsigned pk = vesper_load_peak(), dr = vesper_dropouts(), key = pk | dr << 8;
+        if (first || key != shown) {
+            char t[8]; unsigned n = 0;
+            if (pk > 99) pk = 99;
+            t[n++] = (char)('0' + pk / 10U); t[n++] = (char)('0' + pk % 10U);
+            t[n++] = ' '; t[n++] = 'X'; t[n++] = dr > 9 ? '+' : (char)('0' + dr); t[n] = 0;
+            text(64, 17, t, 1, pk >= 90 || dr ? AMBER : DIM, BACK);
+            shown = key;
+        }
+    }
+#endif
 
 }
 /* HOME, worship edition: the crystal orbit. The four layers are concentric

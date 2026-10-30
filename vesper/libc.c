@@ -155,7 +155,12 @@ int64_t __moddi3(int64_t n, int64_t d)
 }
 #endif
 
+#ifdef PLAT_HOST
+#define RAMFN __attribute__((noinline))
+#else
+#define RAMFN __attribute__((noinline))   /* (not RAM: it is out of a call's reach from the flash code) */
+#endif
 /* 64-bit multiplies, out of line (tools/mul64_outline.py moves every one here: felucca-bsp docs/CPU.md) */
-__attribute__((noinline)) int64_t vesper_smul32(int32_t a, int32_t b) { return (int64_t)a * b; }
-__attribute__((noinline)) uint64_t vesper_umul32(uint32_t a, uint32_t b) { return (uint64_t)a * b; }
-__attribute__((noinline)) uint64_t vesper_mul64(uint64_t a, uint64_t b) { return a * b; }
+RAMFN int64_t vesper_smul32(int32_t a, int32_t b) { return (int64_t)a * b; }
+RAMFN uint64_t vesper_umul32(uint32_t a, uint32_t b) { return (uint64_t)a * b; }
+RAMFN uint64_t vesper_mul64(uint64_t a, uint64_t b) { return a * b; }

@@ -15,6 +15,7 @@
 #include "fm1_audio_io.h"
 #include "audio_output.h"
 #include "plat.h"
+#include "lush.h"
 #include <string.h>
 
 /* app.c */
@@ -320,8 +321,10 @@ void vesper_silence(void)
 
 /* ---- control: the 1.x control task, about 100 times a second ---- */
 static uint32_t last_control;
+void vesper_load_track(void);
 static void control(void)
 {
+    vesper_load_track();
     midi_poll();
     fm1_web_control();
     leds_out();
@@ -346,3 +349,20 @@ void vesper_input(void)
 /* 1.x's panel adapter hooks (weak in midi_router.c): the screen code owns the keys here */
 void groove_midi_panel_reset(void) {}
 void groove_midi_panel_track_reset(unsigned track) { (void)track; }
+
+static volatile uint32_t shed_until;   /* vesper_overload */
+/* TEST builds: the audio load's peak over the last second, and the dropouts (xruns) since start */
+static uint32_t load_peak, load_since;
+unsigned vesper_load_peak(void) { return load_peak; }
+unsigned vesper_dropouts(void) { return plat_xruns(); }
+void vesper_load_track(void)
+{
+    if (shed_until && (int32_t)(plat_ms() - shed_until) > 0) { shed_until = 0; lush_budget(10); }
+    uint32_t now = plat_ms(), pct = plat_cpu_pct();
+    if (now - load_since > 1000u) { load_peak = 0; load_since = now; }
+    if (pct > load_peak) load_peak = pct;
+}
+
+/* the render near its limit (fm1-base APP_OVERLOAD, from the audio interrupt): LUSH keeps fewer synth voices
+ * (the oldest released first) for two seconds, then its usual ten */
+void vesper_overload(void) { lush_budget(6); shed_until = plat_ms() + 2000u; }
