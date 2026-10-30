@@ -6,6 +6,6 @@
 #define FIRMWARE_NAME "VESPER"   /* shown on the boot screen and the updater */
 #define WORSHIP_VERSION "1.1.0"
 #define FM1_RELEASE_VERSION "V14"
-#define FM1_UPDATE_PRODUCT "FM-1_8000014"
+#define FM1_UPDATE_PRODUCT "FM-1_8837001" /* VESPER's own identity (8837 = V-E-S on a phone keypad); was M-VAVE's open V14 default */
 
 #endif

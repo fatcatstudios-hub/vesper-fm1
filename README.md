@@ -1,66 +1,69 @@
-# FM1 Open V14
+# VESPER
 
-English · [简体中文](README.zh-CN.md)
+An ambient worship firmware for the M-VAVE FM-1, by Fat Cat Studios.
 
-8 tracks, 8 sample slots, 16 FX demos; binary SDK included.
+![HOME](docs/images/vesper-home.png) ![Mixer](docs/images/vesper-mixer.png) ![FX](docs/images/vesper-fx.png)
 
-[Workbench and development kit](https://open.m-vave.com/fm1-workbench) · [Official forum](https://forum.m-vave.com)
+Each of VESPER's 16 scenes stacks four lush voices around a key. Typical layers are an arp, a lead, a bass and a swell. Everything stays in a major key you choose. Play the voices live over the scene, record into it, and shape the whole mix with a global effects chain built for pads and atmosphere.
 
-Use the workbench to update firmware, preview the instrument and manage projects, samples and DX7 voices. Select "Source + SDK" to download the development kit matching the online release. Back up projects, voices and samples before updating, and keep the device powered during writes.
+- **Identity:** `FM-1_8837001`
+- **Licence:** GPL-3.0 with the FM1 SDK linking exception (see [LICENSE.md](LICENSE.md) and [THIRD_PARTY.md](THIRD_PARTY.md))
+- **Built on:** M-VAVE's FM1 Open V14 SDK. The M-VAVE update loader is included, so you can always go back to V15 or move to another firmware.
 
-## V14 features
+## Controls
 
-- **DX7 library:** 128 voices in four groups of 32, with the M-VAVE FM1 original V15 factory voices and order. Saved user banks take priority. DX7 single-voice and 32-voice bank SysEx import/export is supported; extension parameters are not handled. Changing the library does not change patches already saved in projects.
-- **Track roles:** on SEQ **8/8 TRACK ROLE**, K1 selects NORMAL, PLAY or OFF; K2 selects input MIDI channel 1–16. PLAY retains the track's timbre and held notes across project changes. MUTE/SOLO use the existing controls, with independent NORMAL and PLAY solo groups. PLAY timbre edits are not saved with projects: export a timbre file, or save DX7 voices to the independent library.
-- **Step recording:** with the track set to NORMAL, press REC while stopped and play notes. Releasing all played keys advances to the next step, including DRUM 808 and SAMPLER. Overlapping notes share a step; during playback, REC records in time. PLAY tracks are for live performance and do not record notes.
-- **Tempo and delay:** internal tempo is 30–300 BPM. Tap Tempo is available on the workbench, with SEQ on the FX DELAY page, or with HOME held while tapping SEQ elsewhere. Delay supports tempo synchronization and fixed times of about 30–2040 ms.
+| Control | What it does |
+|---|---|
+| **HOME** | Press once for the crystal orbit: the four layers turn as rings around the key. Press again for the 4-track mixer. |
+| HOME knobs | K1 sets the key, K2 sets **SPACE** (one knob that adds grains, shimmer, reverb, echo and a cleaner low end), K3 sets layer level, K4 sets BPM. |
+| **SEL** (hold) | Every knob moves one fine step per click while held. On the mixer, the faders become pan. |
+| **ARP** | Switches the keys between setting the key and playing the focused voice live (a green **PLAY** badge shows on HOME). |
+| **REC** | Records what you play into the sequence. Works while playing (ARP on). |
+| **ALGORITHM** | Picks which of the four voices the EDIT, ENV and LFO pages show. |
+| **EDIT** | Five pages per voice: SOUND, TONE, OSC, VOICE and MIX (level, pan, reverb send, echo send). |
+| **ENV / LFO** | Amp and filter envelopes; tempo-synced filter motion, autopan and analog drift. |
+| **FX** | The global chain, one page per press: **DIRT** → **TONE** → **TEXTURE** → **VERB + DELAY**. |
+| **GLO** | Clock and MIDI settings, Bluetooth, swing, click and **THEME** (Crystal, Ember, Forest, Mono). SELECT scrolls; ALGORITHM or K1 changes the value. |
+| **SAVE** | Saves to 16 user slots. Open them with HOME → HOME (PRESETS), then turn K1 to switch between USER and FACTORY. |
 
-## MIDI
+The global effects:
 
-FM1 accepts DIN, USB and BLE MIDI input, with USB/BLE output. Default input channels 1–7 address tracks 1–7; channel 10 addresses track 8. Change each input channel on TRACK ROLE.
+- **DIRT:** drive (%), bits (16 down to 4), sample rate (kHz) and mix.
+- **TONE:** high pass, low pass, a gentle 2:1 compressor and output trim.
+- **TEXTURE:** a tempo-synced granular cloud, octave shimmer, stereo width and chorus.
+- **VERB + DELAY:** plate reverb and a tape-style stereo echo, with each voice's own sends set on EDIT → MIX.
 
-- **5/8 SYNC / LOOP:** select internal or external clock, tempo, loop length and clock input.
-- **6/8 MIDI TRACK:** select SEQ/ARP LOCAL, BOTH or MIDI output, output channel, output ports and physical KEY OUT.
-- **7/8 MIDI ROUTING:** configure LOCAL, CLK OUT and MIDI Thru. For DAW monitoring with Local Off, enable KEY OUT and select the output ports.
+## Installing
 
-MIDI preferences are saved independently of projects. The browser simulator previews these settings without sending performance MIDI to external ports; configure the instrument on its panel. MIDI Clock, Start, Continue, Stop and Song Position Pointer input are supported. Clock loss stops synchronized playback.
+1. Open **FM1-VESPER-1.1.0-Updater.html** (from the release) in Chrome or Edge and connect the FM-1 by USB.
+2. Install from M-VAVE's original V15, or from another open firmware.
+   - If your unit runs a Felucca-family firmware, restore V15 with that firmware's installer first.
+3. **Samples:** the piano, marimba and glockenspiel voices use VESPER's sample bank, [`docs/WORSHIP-SAMPLES.bin`](docs/WORSHIP-SAMPLES.bin). Write it once with the updater's sample tools. The recordings are CC0, from VSCO-2 CE; see [docs/SAMPLE-CREDITS.md](docs/SAMPLE-CREDITS.md).
+4. To leave VESPER, use the same updater page: **Restore original V15**, or install any other firmware.
 
-## Updates and compatibility
+Back up your projects before switching firmware. Project formats differ between firmwares.
 
-V13 can update to V14. The workbench supports returning to original V15 and migrating from compatible third-party firmware. The standard FM1 update protocol remains available. Compatibility has been checked with selected firmware versions; it is not a guarantee for every third-party release.
+## Building
 
-Firmware switching does not make project and sample formats interchangeable. Keep exported backups for rollback. Older firmware may not support V14 track preferences, the independent voice library or synchronized/extended delay settings.
+Build on Linux with the JieLi PI32v2 toolchain (clang 4.0.1):
 
-To back up the independent voice library, read and export groups A–D separately. Project files do not contain sample audio. Restore custom samples from their sample bank backup; writing the built-in sample bank replaces the current samples.
+```
+JL=/path/to/jieli-linux-toolchains bash tools/fw/build.sh   # firmware (.fwsc)
+node tools/fw/workbench.mjs                                 # updater page
+FM1_WASI_SDK=/path/to/wasi-sdk node tools/build-web-linux.mjs  # browser simulator
+```
 
-The eight sample slots share about 19.55 seconds of new sample storage. Existing larger banks remain readable; they may need to be backed up and reduced before writing the independent DX7 library.
+`tools/fw/build.sh` runs a hardware safety gate. It refuses any change to start-up, LCD transfer, audio output or input-scanner code, and any big memory drop, unless you build it as a labelled TEST build for a spare unit. See [docs/vesper-hardware-safety.md](docs/vesper-hardware-safety.md).
 
-## Build
+Most of VESPER lives in a few places:
+- `app/lush.c`: the synth engine and effects
+- `app/screen.c`: the user interface
+- `app/presets.c`: the scenes
 
-Requires Windows x64, PowerShell, `curl.exe` and `tar.exe`. Firmware builds require **JieLi Windows toolchain 2.5.3**, which includes PI32v2 clang 4.0.1. [Download the 2.5.3 installer from JieLi](https://jl-update.oss-cn-shenzhen.aliyuncs.com/2.5.3.exe) and follow the [installation guide](https://doc.zh-jieli.com/Tools/zh-cn/dev_tools/dev_env/jl_toolchain.html). Set `FM1_PI32_TOOLCHAIN` to its `pi32` folder containing `bin/clang.exe` (normally `C:\JL\pi32`). FM1 continues to use the `r3` CPU target.
+The stock V14 README is kept in [docs/FM1-OPEN-V14-README.md](docs/FM1-OPEN-V14-README.md).
 
-The build checks all 22 toolchain files against `sdk/manifest.json`. Older V14 kits were pinned to 2.5.2 and reject 2.5.3; update the complete source + SDK kit together, keeping the manifest checks enabled. For this revision, the expected SHA-256 of `pi32/bin/clang.exe` is `d4bc97cf421c1ccc373dd8924ce88720ff7457b3f1478d15df4aeda6ae923bce`.
+## Credits
 
-For a local web preview:
-
-~~~powershell
-.\tools\Build-Web.ps1 -LocalPreview
-~~~
-
-For distribution builds, first set `FM1_SOURCE_URL` to the HTTPS URL of the matching source archive, including your changes, licenses and build/install scripts. Then run:
-
-~~~powershell
-.\build.bat --web
-$env:FM1_PI32_TOOLCHAIN = 'C:\JL\pi32'
-.\build.bat --package
-~~~
-
-For a local firmware build without a distribution source URL, run `./sdk/Build.ps1 -FirmwareOnly -Toolchain 'C:\JL\pi32'`. A moving GitHub `tree/main` page is not a matching source archive for distribution.
-
-The web version builds from the included C sources. Its first build downloads WASI SDK 27; set `FM1_WASI_SDK` to reuse an installation. Outputs are `build/preview/index.html`, `build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc` and `build/official-web/FM1-Official-Open-Source.html`.
-
-The [per-track tuning API](app/instrument.h) supports custom tuning; a dedicated tuning editor is not included.
-
-## License
-
-APP: [GPLv3 with the FM1 SDK linking exception](LICENSE.md). The device engine is supplied as a binary SDK with separate terms. Retain the applicable [SDK terms, third-party licenses and contributor notices](THIRD_PARTY.md) when distributing builds.
+- FM-1 hardware and the FM1 Open SDK: M-VAVE.
+- Samples: Versilian Studios VSCO-2 Community Edition (CC0).
+- FM-1 web emulator used for start-up testing: Joakim Eriksson.
