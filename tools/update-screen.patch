@@ -1,0 +1,14 @@
+diff --git a/device/unity.c b/device/unity.c
+index fe745cf..b5f0c48 100644
+--- a/device/unity.c
++++ b/device/unity.c
+@@ -185,7 +185,8 @@ static void ota_show(uint32_t step, int32_t code)
+ {
+     static const char *const STEP[] = {"", "PACKAGE", "CHECK HEAD", "LOADER", "CONFIRM", "RESTART"};
+     lcd_fill(0, 0, 240, 240, C_BLACK);
+-    sys_box(0, 92, 240, SYS_S, "UPDATE", C_WHITE, 1);
++    sys_box(0, 56, 240, SYS_BIG, APP_NAME, RGB(79, 209, 255), 1);   /* VESPER: its name over the update steps */
++    sys_box(0, 92, 240, SYS_S, "UPDATE", RGB(207, 230, 255), 1);
+     if (step < 9u) {
+         sys_box(0, 124, 240, SYS_S, STEP[step < 6u ? step : 0], C_HI, 1);
+         return;

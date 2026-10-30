@@ -1,0 +1,56 @@
+diff --git a/loader/ldr_screen.c b/loader/ldr_screen.c
+index 4bd77d6..eda785c 100644
+--- a/loader/ldr_screen.c
++++ b/loader/ldr_screen.c
+@@ -6,14 +6,14 @@
+  * Part of loader.c's single unit; every buffer is in RAM (the SPI DMA reads RAM only). */
+ #include "../boards/fm1/fm1_lcd_hw.h"
+ 
+-#define SCR_BG 0xFFBDu                              /* #faf4e8 cream */
+-#define SCR_FG 0x49C5u                              /* #48392f brown */
+-#define SCR_BAR 0xBA43u                             /* #b84a1e coral */
+-#define SCR_TRACK 0xEEF9u                           /* #e8dcc8, the empty bar */
++#define SCR_BG 0x0865u                              /* VESPER: #0a0f2a night */
++#define SCR_FG 0xCF3Fu                              /* VESPER: #cfe6ff ice */
++#define SCR_BAR 0x4E9Fu                             /* VESPER: #4fd1ff crystal */
++#define SCR_TRACK 0x192Au                           /* VESPER: #1c2550, the empty bar */
+ #define SCR_BAR_X 30u
+-#define SCR_BAR_Y 150u
++#define SCR_BAR_Y 158u
+ #define SCR_BAR_W 180u
+-#define SCR_BAR_H 12u
++#define SCR_BAR_H 6u
+ #define SCR_ROWS 21u                                /* the tallest line: 5x7 glyphs at 3x */
+ 
+ static uint16_t scr_strip[240u * SCR_ROWS];         /* one line of text, byte-swapped (the panel takes MSB first) */
+@@ -25,14 +25,18 @@ static uint8_t scr_on;
+ static const struct { char c; uint8_t rows[7]; } SCR_FONT[] = {
+     { 'A', { 0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 } },
+     { 'D', { 0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E } },
++    { 'E', { 0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F } },
+     { 'G', { 0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0F } },
+     { 'I', { 0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E } },
+     { 'L', { 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F } },
+     { 'N', { 0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11 } },
+     { 'O', { 0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E } },
+     { 'P', { 0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10 } },
++    { 'R', { 0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11 } },
++    { 'S', { 0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E } },
+     { 'T', { 0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04 } },
+     { 'U', { 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E } },
++    { 'V', { 0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04 } },
+ };
+ 
+ static void scr_cmd(uint8_t c)
+@@ -122,8 +126,9 @@ static void ldr_screen_init(void)
+     scr_cmd(0x21);                                  /* INVON: IPS panel */
+     scr_cmd(0x13);                                  /* NORON */
+     scr_fill(0, 0, 240, 240, SCR_BG);
+-    scr_text(76, "UPDATING", 3);
+-    scr_text(110, "DO NOT UNPLUG", 2);
++    scr_text(62, "VESPER", 3);
++    scr_text(104, "UPDATING", 2);
++    scr_text(126, "DO NOT UNPLUG", 1);
+     scr_fill(SCR_BAR_X, SCR_BAR_Y, SCR_BAR_W, SCR_BAR_H, SCR_TRACK);
+     scr_cmd(0x29);                                  /* DISPON */
+     scr_on = 1;
