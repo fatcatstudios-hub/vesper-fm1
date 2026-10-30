@@ -212,6 +212,8 @@ unsigned vesper_fx_get(unsigned i);      /* VESPER global FX 0..11, 0..127 */
 void vesper_fx_edit(unsigned i, int delta);
 unsigned vesper_space_get(void);         /* HOME K2 SPACE macro, 0..127 */
 void vesper_space_edit(int delta);
+unsigned vesper_theme(void);             /* GLO THEME, 0..3 (screen.c) */
+void vesper_theme_set(unsigned theme);
 void vesper_project_loading(const struct groove_project *p);
 int groove_project_apply(const struct groove_project *p);
 /* Open engine: checkpoint only after allocation succeeds, before applying.

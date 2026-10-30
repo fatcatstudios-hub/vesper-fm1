@@ -40,7 +40,9 @@ void lush_effects(const uint8_t fx[4], unsigned delay_ticks, unsigned tempo, uns
  * level, output | drive, bits, rate, mix; 0..127, 64 neutral for tone/width/chorus. */
 enum { LUSH_MASTER_PARAMS = 12 };
 void lush_master(const uint8_t v[LUSH_MASTER_PARAMS]);
-unsigned lush_filter_hz(unsigned low_pass, unsigned v); /* TAPE HI/LO PASS cutoff for a knob value */
+unsigned lush_filter_hz(unsigned low_pass, unsigned v);
+unsigned lush_rate_hz(unsigned v);     /* DIRT RATE: sample rate in Hz */
+unsigned lush_crush_bits(unsigned v);  /* DIRT BITS: bits removed, 0..12 */ /* TAPE HI/LO PASS cutoff for a knob value */
 const char *lush_patch_name(unsigned patch);
 const char *lush_track_name(unsigned track);
 unsigned lush_track_level(unsigned track);   /* 0..127, live */

@@ -133,10 +133,10 @@ static volatile uint32_t beat_inc = 0;    /* per-sample step of a 16-beat (4-bar
 static volatile int32_t fx_shimmer = 0;   /* Q15 */
 static volatile int32_t fx_grains = 0;    /* CLOUD GRAINS amount, 0..127 */
 /* VESPER master FX (0.8), set by lush_master(): CLOUD, TAPE and DIRT pages. */
-static volatile int32_t fx_width = 32768, fx_chorus = 19661;
+static volatile int32_t fx_width = 32768, fx_chorus = 19661, fx_chorus_depth = 160;
 static volatile int32_t fx_hp = 0, fx_lp = 32767;
 static volatile int32_t fx_level_thr = 0, fx_out_gain = 4096; /* leveler threshold (Q15, 0 = off), OUTPUT (Q12) */
-static volatile int32_t fx_drive = 0, fx_crush = 0, fx_hold = 1, fx_dirt_mix = 32767;
+static volatile int32_t fx_drive = 0, fx_crush = 0, fx_rate_inc = 65536, fx_dirt_mix = 32767; /* rate: Q16 per sample, 65536 = full rate */
 static volatile int32_t fx_drive_gain = 256, fx_drive_comp = 32767; /* gain Q8, make-up Q15 */
 static uint32_t beat_phase;
 static volatile int32_t grain_32nd = 1378; /* CLOUD GRAINS: a 32nd note in 22 kHz samples, from the tempo */
@@ -257,6 +257,15 @@ __attribute__((minsize)) unsigned lush_filter_hz(unsigned low_pass, unsigned v)
     for (unsigned i = 0; i < v && i < 127U; ++i) hz = (hz * step) >> 8;
     return hz >> 8;
 }
+/* DIRT BITS: bits taken away, 0 (16-bit) .. 12 (4-bit), one per ~10 knob values. */
+unsigned lush_crush_bits(unsigned v) { return (v > 127U ? 127U : v) * 12U / 127U; }
+/* DIRT RATE: sample rate in Hz, 44100 at 0 falling evenly (exponentially) to ~1.3 kHz. */
+__attribute__((minsize)) unsigned lush_rate_hz(unsigned v)
+{
+    uint32_t hz = 44100U << 8;
+    for (unsigned i = 0; i < v && i < 127U; ++i) hz = (hz * 249U) >> 8;
+    return hz >> 8;
+}
 /* One-pole coefficient (Q15) for a cutoff at 44.1 kHz: ~2*pi*f/fs, eased near the top. */
 static __attribute__((minsize)) int32_t filter_coefficient(unsigned hz)
 {
@@ -270,7 +279,9 @@ __attribute__((minsize)) void lush_master(const uint8_t v[LUSH_MASTER_PARAMS])
 {
     fx_grains = v[0];                                   /* CLOUD GRAINS; v[1] SHIMMER goes through lush_effects */
     fx_width = (int32_t)v[2] * 512;                     /* 64 -> 1.0, 127 -> ~2.0 */
-    fx_chorus = (int32_t)v[3] * 307;                    /* 64 -> today's mix */
+    /* CHORUS: 64 is the scene's chorus; above that it gets much deeper and wetter */
+    fx_chorus = v[3] <= 64 ? (int32_t)v[3] * 307 : 19648 + ((int32_t)v[3] - 64) * 700;
+    fx_chorus_depth = v[3] <= 64 ? 160 : 160 + ((int32_t)v[3] - 64) * 2;
     fx_hp = v[4] ? filter_coefficient(lush_filter_hz(0, v[4])) : 0;       /* HI PASS, 0 = off */
     fx_lp = v[5] < 127 ? filter_coefficient(lush_filter_hz(1, v[5])) : 32767; /* LO PASS, 127 = off */
     {   /* LEVEL: threshold falls ~0.17 dB a step to about -22 dB; OUTPUT ~0.19 dB a step around 0 dB */
@@ -285,8 +296,8 @@ __attribute__((minsize)) void lush_master(const uint8_t v[LUSH_MASTER_PARAMS])
     fx_drive = (int32_t)v[8] * 12;                      /* pre-gain into the clipper */
     fx_drive_gain = 256 + fx_drive * 2;                 /* 1x .. ~13x, Q8 */
     fx_drive_comp = (int32_t)((32767L * 256) / (256 + fx_drive)); /* hold the level as it clips */
-    fx_crush = v[9] ? 1 + (int32_t)v[9] * 11 / 127 : 0; /* bits removed: 1..12 */
-    fx_hold = 1 + (int32_t)v[10] * 15 / 127;            /* sample-and-hold length */
+    fx_crush = (int32_t)lush_crush_bits(v[9]);            /* bits removed: 0..12, even steps */
+    fx_rate_inc = (int32_t)(((uint32_t)lush_rate_hz(v[10]) << 16) / 44100U); /* RATE: 44.1 kHz down to ~1.3 kHz */
     fx_dirt_mix = (int32_t)v[11] * 258;
 }
 __attribute__((minsize)) void lush_effects(const uint8_t fx[4], unsigned delay_ticks, unsigned tempo, unsigned shimmer)
@@ -1135,9 +1146,10 @@ static inline LUSH_HOT void reverb_sample(int32_t input, int32_t out[2])
     /* SHIMMER goes deep into the tank: a quarter through the input diffusers,
      * the rest straight into the modulated, damped loop, so every pass of the
      * octave is smeared and darkened by the reverb itself. */
-    int32_t shim = 0;
+    int32_t shim = 0, shim_direct = 0;
     if (fx_shimmer) {
         shim = (int32_t)(((int64_t)shimmer_sample((rev_out[0] + rev_out[1]) >> 1) * fx_shimmer) >> 15);
+        shim_direct = (shim * 3) >> 2; /* 1.0: louder shimmer straight to the reverb output too */
         input += shim >> 2;
         shim = (shim * 3) >> 3; /* three eighths into each side of the loop */
     }
@@ -1170,9 +1182,9 @@ static inline LUSH_HOT void reverb_sample(int32_t input, int32_t out[2])
     right = allpass(&r_ap2, r_ap2.length - 1U, right, 16384);
     push(&r_d2, right);
     out[0] = tap(&r_d1, 197) + tap(&r_d1, 2204) - tap(&r_ap2, 1417) + tap(&r_d2, 1479)
-           - tap(&l_d1, 1474) - tap(&l_ap2, 139) - tap(&l_d2, 790);
+           - tap(&l_d1, 1474) - tap(&l_ap2, 139) - tap(&l_d2, 790) + shim_direct;
     out[1] = tap(&l_d1, 262) + tap(&l_d1, 2687) - tap(&l_ap2, 910) + tap(&l_d2, 1981)
-           - tap(&r_d1, 1564) - tap(&r_ap2, 248) - tap(&r_d2, 90);
+           - tap(&r_d1, 1564) - tap(&r_ap2, 248) - tap(&r_d2, 90) + shim_direct;
 }
 
 static int32_t dc_in[2], dc_out[2]; /* dc_out is Q8 above the signal */
@@ -1222,17 +1234,27 @@ enum { PRE_BUSES = 5 }; /* dry L, dry R, chorus, delay send, reverb send */
 static int32_t hold_v[PRE_BUSES], filt[PRE_BUSES][4];
 static uint8_t pre_take[N];
 static int32_t level_env, level_gain = 32767, level_target = 32767; /* LEVEL leveler state */
-static uint32_t hold_count;
+static uint32_t hold_phase;
+/* Knob moves glide over ~10 ms instead of stepping, so turning DIRT and TONE is smooth. */
+static int32_t glide_g = 256, glide_dc = 32767, glide_mix = 32767, glide_hp, glide_lp = 32767;
+static inline LUSH_HOT int32_t glide(int32_t now, int32_t target)
+{
+    int32_t d = target - now;
+    return d > -8 && d < 8 ? target : now + (d >> 2);
+}
 static inline LUSH_HOT void pre_fx(void)
 {
-    const int32_t g = fx_drive_gain, dc = fx_drive_comp, crush = fx_crush, hold = fx_hold, mixd = fx_dirt_mix;
-    const int32_t hp = fx_hp, lp = fx_lp;
-    const int drive_on = g != 256, dirt_on = drive_on || crush || hold > 1, filter_on = hp || lp < 32767;
+    glide_g = glide(glide_g, fx_drive_gain); glide_dc = glide(glide_dc, fx_drive_comp);
+    glide_mix = glide(glide_mix, fx_dirt_mix); glide_hp = glide(glide_hp, fx_hp); glide_lp = glide(glide_lp, fx_lp);
+    const int32_t g = glide_g, dc = glide_dc, crush = fx_crush, rate = fx_rate_inc, mixd = glide_mix;
+    const int32_t hp = glide_hp, lp = glide_lp;
+    const int drive_on = g != 256, held_on = rate < 65536, dirt_on = drive_on || crush || held_on, filter_on = hp || lp < 32767;
     if (!dirt_on && !filter_on) return;
-    if (hold > 1)
-        for (unsigned j = 0; j < N; ++j) { /* shared hold clock */
-            pre_take[j] = 0;
-            if (++hold_count >= (uint32_t)hold) { hold_count = 0; pre_take[j] = 1; }
+    if (held_on)
+        for (unsigned j = 0; j < N; ++j) { /* RATE: take a new sample at the chosen rate, hold it between */
+            hold_phase += (uint32_t)rate;
+            pre_take[j] = hold_phase >= 65536U;
+            if (pre_take[j]) hold_phase -= 65536U;
         }
     for (unsigned c = 0; c < PRE_BUSES; ++c) {
         int32_t *p = c < 2 ? bus_dry + c : c == 2 ? bus_chorus : c == 3 ? bus_delay : bus_reverb;
@@ -1245,7 +1267,7 @@ static inline LUSH_HOT void pre_fx(void)
                 int32_t d = x;
                 if (drive_on) d = (soft_clip((d * g) >> 8) * dc) >> 15;
                 if (crush) d = (clamp15(d) >> crush) << crush;
-                if (hold > 1) { if (pre_take[j]) held = d; d = held; }
+                if (held_on) { if (pre_take[j]) held = d; d = held; }
                 x += ((d - x) * mixd) >> 15;
             }
             if (hp) { /* 12 dB/oct: two one-pole high passes */
@@ -1316,7 +1338,7 @@ LUSH_CODE void lush_render(int32_t *output)
     uint32_t dtime = delay_now, dtime_r = (uint32_t)(((uint64_t)dtime * 4U) / 3U);
     if (dtime_r > ((uint32_t)(DELAY_LEN - 2) << 16)) dtime_r = (uint32_t)(((uint64_t)dtime * 2U) / 3U);
     pre_fx(); /* DIRT and TAPE first, on every bus */
-    const int32_t width = fx_width, chorus_mix = fx_chorus, grains_on = fx_grains; /* read once per block */
+    const int32_t width = fx_width, chorus_mix = fx_chorus, chorus_depth = fx_chorus_depth, grains_on = fx_grains; /* read once per block */
     const int32_t level_thr = fx_level_thr, out_gain = fx_out_gain;
     const int32_t grain_wet = grains_on * 420 > 29500 ? 29500 : grains_on * 420, grain_feedback = grains_on * 170;
     for (unsigned j = 0; j < N; ++j) {
@@ -1325,7 +1347,7 @@ LUSH_CODE void lush_render(int32_t *output)
         chorus_line[chorus_write] = (int16_t)clamp15(mono >> 1);
         chorus_lfo += 53500U; /* ~0.55 Hz */
         int32_t tri = (int32_t)(chorus_lfo >> 16); tri = tri < 32768 ? tri : 65535 - tri;
-        uint32_t base = 260U << 16, depth = 160U;
+        uint32_t base = 260U << 16, depth = (uint32_t)chorus_depth;
         int32_t cl = chorus_tap(base + (uint32_t)tri * depth);
         int32_t cr = chorus_tap(base + (uint32_t)(32767 - tri) * depth);
         chorus_write = (chorus_write + 1U) & (CHORUS_LEN - 1U);
@@ -1385,8 +1407,8 @@ LUSH_CODE void lush_render(int32_t *output)
         int32_t dr = half ? delay_out[1] : (delay_prev[1] + delay_out[1]) >> 1;
         int32_t rl = half ? rev_out[0] : (rev_prev[0] + rev_out[0]) >> 1;
         int32_t rr = half ? rev_out[1] : (rev_prev[1] + rev_out[1]) >> 1;
-        l += ((dl + ((rl * 9) >> 3)) * wet) >> 15;
-        r += ((dr + ((rr * 9) >> 3)) * wet) >> 15;
+        l += ((((dl * 13) >> 3) + ((rl * 9) >> 3)) * wet) >> 15; /* echoes 1.6x louder than 0.8 */
+        r += ((((dr * 13) >> 3) + ((rr * 9) >> 3)) * wet) >> 15;
         if (grains_on) {
             int32_t gl = half ? grain_out[0] : (grain_prev[0] + grain_out[0]) >> 1;
             int32_t gr = half ? grain_out[1] : (grain_prev[1] + grain_out[1]) >> 1;

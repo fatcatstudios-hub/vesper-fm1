@@ -31,13 +31,43 @@
 enum {
     BACK = 0x0000,
     PANEL = 0x18e3,
-    TEXT = 0xef9f,    /* frost white */
-    ACCENT = 0x8edf,  /* ice blue */
-    DIM = 0x8c97,     /* lavender grey */
-    GREEN = 0x7f9a,   /* aqua: play, follow, active */
-    AMBER = 0xfd94,   /* soft rose: pause, warnings */
     INK = 0x0001      /* text background: leave it as it is (second pass of bold text) */
 };
+/* GLO THEME (1.0): four palettes. Each row: text, accent, dim, green (play,
+ * active), amber (warnings), then the eight layer colours. CRYSTAL is the
+ * original look. The backdrop follows the theme too (see frost_px). */
+#define RGB(r, g, b) (uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3))
+enum { THEMES = 4 };
+static const char *const theme_names[THEMES] = {"CRYSTAL", "EMBER", "FOREST", "MONO"};
+static const uint16_t theme_palette[THEMES][13] = {
+    {0xef9f, 0x8edf, 0x8c97, 0x7f9a, 0xfd94, 0x8e5f, 0x7f3e, 0x9798, 0x6ed9, 0xad5f, 0xe59e, 0xf739, 0xfd98},
+    {RGB(255, 236, 220), RGB(255, 170, 90), RGB(170, 140, 125), RGB(255, 214, 120), RGB(255, 110, 110),
+     RGB(255, 180, 110), RGB(255, 140, 120), RGB(250, 210, 140), RGB(230, 150, 190),
+     RGB(255, 200, 160), RGB(240, 120, 90), RGB(255, 230, 170), RGB(220, 170, 140)},
+    {RGB(230, 255, 236), RGB(120, 230, 160), RGB(130, 165, 140), RGB(170, 255, 140), RGB(255, 190, 110),
+     RGB(120, 230, 170), RGB(170, 230, 120), RGB(110, 210, 220), RGB(210, 230, 140),
+     RGB(140, 240, 200), RGB(190, 250, 160), RGB(120, 200, 180), RGB(230, 240, 170)},
+    {RGB(240, 240, 240), RGB(200, 200, 200), RGB(130, 130, 130), RGB(220, 220, 220), RGB(255, 170, 120),
+     RGB(225, 225, 225), RGB(190, 190, 190), RGB(160, 160, 160), RGB(205, 205, 205),
+     RGB(235, 235, 235), RGB(175, 175, 175), RGB(215, 215, 215), RGB(150, 150, 150)},
+};
+static uint8_t theme;
+static uint16_t pal[13] = {0xef9f, 0x8edf, 0x8c97, 0x7f9a, 0xfd94, 0x8e5f, 0x7f3e, 0x9798, 0x6ed9, 0xad5f, 0xe59e, 0xf739, 0xfd98};
+static void saved_cache_reset(void);
+unsigned vesper_theme(void) { return theme; }
+void vesper_theme_set(unsigned t)
+{
+    if (t >= THEMES || t == theme) return;
+    theme = (uint8_t)t;
+    memcpy(pal, theme_palette[t], sizeof pal);
+    saved_cache_reset();
+}
+#define TEXT (pal[0])
+#define ACCENT (pal[1])
+#define DIM (pal[2])
+#define GREEN (pal[3])
+#define AMBER (pal[4])
+#define colors (pal + 5)
 /* Indigo to violet, top to bottom, dithered against banding, with three soft glows. */
 /* One glow: soft-edged tint around (gx, gy), constants straight in the code. */
 #define GLOW(gx, gy, r2, inv, tr, tg, tb) do { \
@@ -47,7 +77,7 @@ enum {
             w = (w * w) >> 8; \
             r += ((tr) * w) >> 8; g += ((tg) * w) >> 8; b += ((tb) * w) >> 8; \
         } } while (0)
-static inline __attribute__((always_inline)) uint16_t frost_px(unsigned x, unsigned y, unsigned glass)
+static inline __attribute__((always_inline)) uint16_t frost_px(unsigned x, unsigned y, unsigned glass, unsigned look)
 {
     /* Register-only on purpose: on the FM-1 every memory read costs about as
      * much as the whole sum, so there are no tables and no saved state here.
@@ -61,15 +91,19 @@ static inline __attribute__((always_inline)) uint16_t frost_px(unsigned x, unsig
     GLOW(30, 200, 130 * 130, 16777216 / (130 * 130), 4, 3, 6);    /* lavender, low left */
     GLOW(140, 140, 90 * 90, 16777216 / (90 * 90), 3, 2, 3);       /* rose haze, centre */
     if (glass) { r += 4; g += 10; b += 7; }
+    /* THEME: the same frost, re-tinted in registers (look is read once per run). */
+    if (look == 1) { int t = r; r = b; b = t; g = (g * 3) >> 2; }                     /* EMBER: warm brown-red */
+    else if (look == 2) { int t = b; b = g >> 1; g = t * 2 + 2; r = (r >> 1) + 1; } /* FOREST: deep green */
+    else if (look == 3) { int v = (r + b + (g >> 1)) / 3; r = b = v; g = v * 2; }   /* MONO: graphite */
     return (uint16_t)((r > 31 ? 31 : r) << 11 | (g > 63 ? 63 : g) << 5 | (b > 31 ? 31 : b));
 }
 #undef GLOW
-static __attribute__((noinline)) uint16_t frost(unsigned x, unsigned y, unsigned glass) { return frost_px(x, y, glass); }
 /* A whole run of backdrop pixels in one call: no call per pixel, so nothing
  * has to be saved to and reloaded from memory for each one. */
 static __attribute__((noinline)) void frost_run(uint16_t *dst, unsigned x, unsigned end, unsigned y, unsigned glass)
 {
-    for (; x < end; ++x) *dst++ = frost_px(x, y, glass);
+    unsigned look = theme; /* one read per run, then registers only */
+    for (; x < end; ++x) *dst++ = frost_px(x, y, glass, look);
 }
 /* Five columns per glyph, bit 0 at the top. Digits followed by uppercase. */
 static const uint8_t font[36][5] = {
@@ -199,7 +233,6 @@ enum { OVERVIEW, STEPS, FM_EDIT, FM_ENV, FM_LFO, TONE_EDIT, MIX, BLE, PROJECT, N
 enum { OCT_DOWN, OCT_UP, FX, SCL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
 #define BUTTON(b) (1U << (b))
 /* Track prism: ice, aqua, mint, seafoam, periwinkle, lavender, pearl, rose quartz. */
-static const uint16_t colors[8] = {0x8e5f, 0x7f3e, 0x9798, 0x6ed9, 0xad5f, 0xe59e, 0xf739, 0xfd98};
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 /* FM1 EDIT key IDs 15,17,19,22,24,27,29,31,34,36 minus 14. */
 static const uint8_t edit_keys[10] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22};
@@ -222,11 +255,16 @@ static const struct fm_page {
 static const char *const source_names[] = {"DX7 FM", "BASS 303", "DRUM 808", "PSG", "PLUCK", "SAMPLER"};
 static const char *const actions[] = {"STEP DETAILS", "RHYTHM / RECORD", "COPY STEP", "COPY PAGE", "COPY TRACK",
     "PASTE STEP", "PASTE PAGE", "PASTE TRACK", "CLEAR STEP", "CLEAR PAGE", "CLEAR TRACK",
-    "REPEAT TO 32", "REPEAT TO 48", "REPEAT TO 64", "UNDO / REDO", "COPY TIMBRE", "PASTE TIMBRE",
-    "DX7 PATCH NAME", "BLUETOOTH / CLOCK", "STOP ALL / REWIND"};
+    "REPEAT TO 32", "REPEAT TO 48", "REPEAT TO 64", "UNDO / REDO",
+#if !WORSHIP_SLIM /* stock timbre / DX7 / Bluetooth actions do nothing for VESPER voices */
+    "COPY TIMBRE", "PASTE TIMBRE", "DX7 PATCH NAME", "BLUETOOTH / CLOCK",
+#endif
+    "STOP ALL / REWIND"};
 enum { ACTION_COUNT = sizeof actions / sizeof actions[0] };
 static unsigned source_preview, action, action_confirm, tone_clip_ready;
+#if !WORSHIP_SLIM
 static struct groove_preset tone_clip;
+#endif
 static uint32_t midi_seen[8], midi_until[8];
 static uint8_t midi_active[8];
 static unsigned track, cursor, selected_note = 60, drum, writing, page, fm_group, op;
@@ -275,7 +313,8 @@ static uint32_t edit_ms;
 static unsigned seq_down;
 static uint32_t seq_ms;
 static unsigned arp_down, arp_long;
-static unsigned v_edit, v_filter_env, play_mode, v_global_row;
+static unsigned v_edit, v_filter_env, play_mode, v_global_row, sel_held; /* sel_held: SEL (SCL) is down: the more key */
+static uint8_t frame_lit[4]; /* mixer meters, fixed per frame so every band draws the same height */
 static unsigned battery_adc = 900, preset_edited; /* smoothed battery ADC; header * */
 /* GLO diagnostics for the last page change: ms painting bands, ms deciding what changed, passes, bands. */
 /* VESPER page state; ARP = play mode */
@@ -319,6 +358,7 @@ struct draw_cache {
     unsigned meter_cache[8];
 };
 static struct draw_cache saved_cache, band_cache, *cache = &saved_cache;
+static void saved_cache_reset(void) { saved_cache.shown_page = ~0U; } /* repaint everything */
 static uint32_t led_cache;
 static uint16_t button_led_cache;
 static struct groove_view frame_views[GROOVE_TRACKS];
@@ -389,6 +429,7 @@ static int16_t turn_rate[7], turn_frac[7];
 static int turn_scaled(unsigned e, int value, int base_q4, int boost_q4)
 {
     if (!value || e >= 7) return 0;
+    if (sel_held) return value; /* holding SEL: exactly one step per click, for fine tuning */
     uint32_t now = fm1_millis(), dt = now - turn_ms[e];
     turn_ms[e] = now;
     int n = value < 0 ? -value : value;
@@ -550,7 +591,11 @@ static void knob(unsigned col, const char *label, const char *value, uint16_t co
     unsigned x = 6 + 59 * col;
     paint_fill(x, 195, 54, 32, BACK);
     paint_fill(x, 195, 54, 2, color);
-    text(x, 200, label, 1, TEXT, BACK);
+    char shown[10]; /* a label never spills into the next knob: 9 letters fill 54 px */
+    unsigned n = 0;
+    for (; label[n] && n < 9; ++n) shown[n] = label[n];
+    shown[n] = 0;
+    text(x, 200, shown, 1, TEXT, BACK);
     text(x, 209, value, strlen(value) <= 4 ? 2 : 1, color, BACK); /* rows 209-222: one band */
 }
 static __attribute__((noinline)) void header(const struct groove_view *v)
@@ -594,11 +639,11 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
     if (first || (changed & 1023U)) {
         /* Crystal battery: a faceted cell with four charge bars. */
         uint16_t fill = percent < 25U ? AMBER : ACCENT;
-        paint_fill(8, 6, 26, 14, BACK);
-        frame(8, 6, 24, 14, TEXT);
-        paint_fill(32, 10, 2, 6, TEXT);
+        paint_fill(8, 8, 26, 14, BACK); /* centred on the two header lines and the name */
+        frame(8, 8, 24, 14, TEXT);
+        paint_fill(32, 12, 2, 6, TEXT);
         for (unsigned i = 0; i < 4; ++i)
-            paint_fill(11 + 5 * i, 9, 4, 8, percent > i * 25U ? fill : PANEL);
+            paint_fill(11 + 5 * i, 11, 4, 8, percent > i * 25U ? fill : PANEL);
     }
     if (first || (changed & ((1U << 16) | (1U << 28))))
         text(42, 7, v->playing ? "PLAY " : paused ? "PAUSE" : "STOP ", 1,
@@ -1074,46 +1119,60 @@ static __attribute__((noinline)) void tone_draw(const uint8_t values[GROOVE_TONE
  * white keys 1-4 mute and 9-12 solo. */
 static __attribute__((noinline)) void mix_draw(const struct groove_view v[8])
 {
+    /* HOME 2: four strips. The focused one has a bright top bar and a bold
+     * name (no panel fill, so changing focus repaints very little). Holding
+     * SEL turns the faders into pan controls. Meters are a thin line drawn
+     * from a level fixed once per frame. */
     if (paint_rendering && (paint_top >= 192 || paint_top + PAINT_ROWS <= 32)) return;
-    if (cache->title_cache != 9100U) {
-        cache->title_cache = 9100U;
-        paint_fill(0, 32, 240, 160, BACK);
+    if (cache->title_cache != 9100U + sel_held) {
+        cache->title_cache = 9100U + sel_held;
+        paint_fill(0, 32, 240, 20, BACK);
         text(8, 36, "HOME", 1, DIM, BACK);
-        text(40, 34, "MIXER", 2, ACCENT, BACK);
+        text(40, 34, sel_held ? "PAN" : "MIXER", 2, ACCENT, BACK);
+        if (!sel_held) text(166, 38, "HOLD SEL PAN", 1, DIM, BACK);
     }
     for (unsigned t = 0; t < 4; ++t) {
         unsigned x = 8 + 57 * t, on = t == track;
         const char *lush = lush_track_name(t);
-        uint32_t sig = (uint32_t)v[t].volume | (v[t].muted << 8) | (v[t].solo << 9) | (on << 10);
-        sig ^= (uint32_t)(uintptr_t)lush << 11;
+        int pos = lush ? lush_param_get(t, LP_POS) : 0;
+        uint32_t sig = (uint32_t)v[t].volume | (v[t].muted << 8) | (v[t].solo << 9) | (on << 10) | (sel_held << 11);
+        sig = sig * 131U + (uint32_t)(pos + 64) + ((uint32_t)(uintptr_t)lush << 20);
         if (sig != cache->tile_cache[t]) {
             cache->tile_cache[t] = sig;
             cache->meter_cache[t] = ~0U;
-            paint_fill(x, 56, 53, 134, on ? PANEL : BACK);
-            paint_fill(x, 56, 53, 2, on ? colors[t] : DIM);
+            paint_fill(x, 56, 53, 134, BACK);
+            paint_fill(x, 56, 53, on ? 3 : 1, on ? colors[t] : DIM);
             char word[9] = {0};
             for (unsigned n = 0; lush && lush[n] && lush[n] != ' ' && n < 8; ++n) word[n] = lush[n];
-            text(x + 3, 62, word, 1, v[t].muted ? DIM : colors[t], on ? PANEL : BACK);
-            if (on) text(x + 4, 62, word, 1, v[t].muted ? DIM : colors[t], INK);
-            /* fader: a slot and a cap at this voice's volume */
-            paint_fill(x + 38, 78, 3, 100, DIM);
-            unsigned cap = 176U - v[t].volume * 96U / 127U;
-            paint_fill(x + 33, cap - 2, 13, 5, TEXT);
-            text(x + 3, 182, v[t].muted ? "MUTE" : v[t].solo ? "SOLO" : "", 1, v[t].muted ? AMBER : GREEN, on ? PANEL : BACK);
+            uint16_t ink = v[t].muted ? DIM : on ? TEXT : colors[t];
+            text(x + 3, 63, word, 1, ink, BACK);
+            if (on) text(x + 4, 63, word, 1, ink, INK);
+            if (sel_held) { /* pan: a short horizontal slot with the cap at the position */
+                paint_fill(x + 4, 127, 45, 2, DIM);
+                paint_fill(x + 26, 123, 1, 10, DIM);
+                unsigned cap = (unsigned)(x + 26 + pos * 21 / 64);
+                paint_fill(cap - 2, 120, 5, 16, on ? TEXT : colors[t]);
+                char value[6];
+                if (!pos) strcpy(value, "C");
+                else { value[0] = pos < 0 ? 'L' : 'R'; decimal(value + 1, pos < 0 ? -pos : pos, 1); }
+                text(x + 3, 182, value, 1, on ? TEXT : colors[t], BACK);
+            } else {
+                /* fader: a slot and a cap at this voice's volume */
+                paint_fill(x + 38, 78, 3, 100, DIM);
+                unsigned cap = 176U - v[t].volume * 96U / 127U;
+                paint_fill(x + 33, cap - 2, 13, 5, on ? TEXT : colors[t]);
+                text(x + 3, 182, v[t].muted ? "MUTE" : v[t].solo ? "SOLO" : "", 1, v[t].muted ? AMBER : GREEN, BACK);
+            }
         }
-        /* live level: twenty segments, at most five updates a second */
-        unsigned level = lush ? lush_track_level(t) : v[t].audible ? v[t].level : 0U;
-        unsigned lit = (level * 20U + 63U) / 127U;
-        static uint32_t at[4];
-        if (!paint_rendering && lit != cache->meter_cache[t] && cache->meter_cache[t] != ~0U && frame_time - at[t] < 200U)
-            lit = cache->meter_cache[t];
+        if (sel_held) continue;
+        unsigned lit = frame_lit[t];
         if (lit != cache->meter_cache[t]) {
-            if (!paint_rendering) at[t] = frame_time;
+            unsigned old = cache->meter_cache[t] == ~0U ? 0U : cache->meter_cache[t], fresh = cache->meter_cache[t] == ~0U;
             cache->meter_cache[t] = lit;
-            /* a thin line: lit part in the voice's colour, the rest a faint guide */
-            unsigned h = lit * 5U;
-            paint_fill(x + 16, 78, 3, 100 - h, on ? BACK : PANEL);
-            if (h) paint_fill(x + 16, 178 - h, 3, h, lit >= 18 ? AMBER : colors[t]);
+            /* only the part that changed: grow in colour, shrink back to the faint guide */
+            if (fresh) { paint_fill(x + 16, 78, 3, 100 - lit, PANEL); if (lit) paint_fill(x + 16, 178 - lit, 3, lit, colors[t]); }
+            else if (lit > old) paint_fill(x + 16, 178 - lit, 3, lit - old, colors[t]);
+            else paint_fill(x + 16, 178 - old, 3, old - lit, PANEL);
         }
     }
 }
@@ -1610,11 +1669,11 @@ static __attribute__((noinline)) const char *vesper_label(unsigned id)
         "UNISON", "DETUNE", "PW", "CHORUS", "ATTACK", "DECAY", "SUSTAIN", "RELEASE",
         "F ATTACK", "F DECAY", "F SUST", "F REL", "RATE", "FILTER", "AUTOPAN", "DRIFT",
         "WIDTH", "BRIGHT", "RING", "VEL", "GAIN", "PAN", "OCTAVE"};
-    static const char *const fx[16] = {"DECAY", "TIME", "ECHO", "REVERB",
-        "GRAINS", "SHIMMER", "WIDTH", "CHORUS", "HI PASS", "LO PASS", "LEVEL", "OUTPUT",
-        "DRIVE", "BITS", "RATE", "MIX"};
+    static const char *const fx[16] = {"DECAY", "TIME MS", "ECHO", "REVERB",
+        "GRAINS", "SHIMMER", "WIDTH", "CHORUS", "HI PASS", "LO PASS", "COMP", "OUTPUT DB",
+        "DRIVE", "BITS", "RATE KHZ", "MIX"};
     if (id >= VX_SPACE && id < VX_MASTER + 12) {
-        if (id == VX_SPACE + 1 && groove_delay_synced(frame_effects[1])) return "DIVISION";
+        if (id == VX_SPACE + 1 && groove_delay_synced(frame_effects[1])) return "TIME";
         return fx[id - VX_SPACE];
     }
     return id == VP_SOUND ? "SOUND" : id == VP_LEVEL ? "LEVEL" : id == VP_VERB ? "REVERB" : id == VP_ECHO ? "ECHO"
@@ -1637,10 +1696,11 @@ static __attribute__((noinline)) void vesper_value(unsigned id, char out[12])
         return;
     }
     if (id == VX_SPACE + 1 && groove_delay_synced(frame_effects[1])) {
-        static const char *const division[] = {"1/32T", "1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/8D", "1/4"};
+        static const char *const division[] = {"32T", "1/32", "16T", "1/16", "8T", "16D", "1/8", "1/8D", "1/4"}; /* 4 letters at most */
         strcpy(out, division[(frame_effects[1] - GROOVE_DELAY_SYNC) % 9U]);
         return;
     }
+    if (id == VX_SPACE + 1) { decimal(out, (int)((groove_delay_ticks() * 80U + 220U) / 441U), 1); return; } /* free time, ms */
     if (id >= VX_SPACE && id < VX_MASTER) { decimal(out, frame_effects[id - VX_SPACE], 1); return; }
     if (id >= VX_MASTER && id < VX_MASTER + 12) {
         int v = (int)vesper_fx_get(id - VX_MASTER);
@@ -1652,7 +1712,7 @@ static __attribute__((noinline)) void vesper_value(unsigned id, char out[12])
         if (id == VX_MASTER + 4 || id == VX_MASTER + 5) { /* TAPE filters show their cutoff */
             if (id == VX_MASTER + 4 ? !v : v == 127) { strcpy(out, "OFF"); return; }
             unsigned hz = lush_filter_hz(id == VX_MASTER + 5, (unsigned)v);
-            if (hz < 1000U) { decimal(out, (int)hz, 1); strcat(out, "HZ"); }
+            if (hz < 1000U) decimal(out, (int)hz, 1);   /* Hz as a plain number, kHz with K: never more than 4 letters */
             else {
                 decimal(out, (int)(hz / 1000U), 1);
                 if (hz < 10000U) { char d[4] = {'.', (char)('0' + hz / 100U % 10U), 0}; strcat(out, d); }
@@ -1667,11 +1727,17 @@ static __attribute__((noinline)) void vesper_value(unsigned id, char out[12])
             if (db10 > 0) *at++ = '+';
             if (db10 < 0) { *at++ = '-'; db10 = -db10; }
             decimal(at, db10 / 10, 1);
-            if (db10 % 10) { char d[3] = {'.', (char)('0' + db10 % 10), 0}; strcat(out, d); }
-            strcat(out, "DB");
+            if (db10 % 10 && db10 < 100) { char d[3] = {'.', (char)('0' + db10 % 10), 0}; strcat(out, d); }
             return;
         }
-        if (id == VX_MASTER + 9 && v) v = 1 + v * 11 / 127; /* bits removed */
+        if (id == VX_MASTER + 8 || id == VX_MASTER + 11) { decimal(out, (v * 100 + 63) / 127, 1); strcat(out, "%"); return; } /* DRIVE, MIX */
+        if (id == VX_MASTER + 9) { decimal(out, 16 - (int)lush_crush_bits((unsigned)v), 1); return; }   /* BITS: 16 down to 4 */
+        if (id == VX_MASTER + 10) { /* RATE in kHz, one decimal */
+            unsigned hz = lush_rate_hz((unsigned)v);
+            decimal(out, (int)(hz / 1000U), 1);
+            char d[3] = {'.', (char)('0' + hz / 100U % 10U), 0}; strcat(out, d);
+            return;
+        }
         decimal(out, v, 1);
         return;
     }
@@ -1706,9 +1772,9 @@ static unsigned vesper_bar(unsigned id)
 }
 /* GLO: global settings. SELECT picks a row, K1 changes it. */
 enum { G_CLOCK, G_CLOCK_IN, G_CLOCK_OUT, G_MIDI_OUT, G_KEYS_OUT, G_LOCAL, G_THRU_IN, G_THRU_OUT,
-       G_BLUETOOTH, G_SWING, G_CLICK, G_BATTERY, G_VERSION, G_ROWS };
+       G_BLUETOOTH, G_SWING, G_CLICK, G_THEME, G_BATTERY, G_VERSION, G_ROWS };
 static const char *const global_names[G_ROWS] = {"CLOCK", "CLOCK IN", "CLOCK OUT", "MIDI OUT", "KEYS TO MIDI",
-    "LOCAL SOUND", "THRU FROM", "THRU TO", "BLUETOOTH", "SWING", "CLICK", "BATTERY", "VERSION"};
+    "LOCAL SOUND", "THRU FROM", "THRU TO", "BLUETOOTH", "SWING", "CLICK", "THEME", "BATTERY", "VERSION"};
 static __attribute__((noinline)) void global_value(unsigned row, char out[20])
 {
     static const char *const ports[] = {"OFF", "DIN", "USB", "DIN+USB", "BLE", "DIN+BLE", "USB+BLE", "ALL"};
@@ -1725,6 +1791,7 @@ static __attribute__((noinline)) void global_value(unsigned row, char out[20])
     case G_BLUETOOTH: strcpy(out, groove_settings_radio_flags() & GROOVE_RADIO_ON ? "ON" : "OFF"); break;
     case G_SWING: decimal(out, (int)groove_sequence_setting(0), 1); strcat(out, "%"); break;
     case G_CLICK: strcpy(out, clicks[groove_sequence_setting(1) % 3U]); break;
+    case G_THEME: strcpy(out, theme_names[theme]); break;
     case G_BATTERY: decimal(out, (int)battery_adc, 1); strcat(out, " ADC"); break;
     case G_VERSION: strcpy(out, SHOWN_VERSION); break;
     default: strcpy(out, v ? "ON" : "OFF");
@@ -1742,6 +1809,7 @@ static void global_edit(unsigned row, int delta)
         flags = delta > 0 ? flags | GROOVE_RADIO_ON : flags & ~(unsigned)GROOVE_RADIO_ON;
         if (flags != groove_settings_radio_flags()) (void)groove_settings_radio(flags, groove_settings_role_value());
     } else if (row == G_SWING || row == G_CLICK) groove_sequence_setting_edit(row == G_SWING ? 0 : 1, delta);
+    else if (row == G_THEME) { vesper_theme_set((unsigned)(((int)theme + (delta > 0 ? 1 : -1) + THEMES) % THEMES)); groove_project_touch(); }
 }
 static __attribute__((noinline)) void global_draw(void)
 {
@@ -1773,22 +1841,28 @@ static __attribute__((noinline)) void global_draw(void)
     global_value(v_global_row, value);
     knob(0, global_names[v_global_row], value, ACCENT);
     for (unsigned c = 1; c < 4; ++c) knob(c, "", "", DIM);
-    const char *hint = notice ? notice : "SELECT ROW   K1 CHANGE";
+    const char *hint = notice ? notice : "SELECT ROW   ALGO / K1 CHANGE";
     uint32_t h = signature(1, hint, (unsigned)strlen(hint));
     if (cache->hint_cache != h) { cache->hint_cache = h; paint_fill(0, 229, 240, 11, BACK); text(8, 231, hint, 1, DIM, BACK); }
+}
+static unsigned fx_raw(unsigned id) /* an FX knob's 0..127 position */
+{
+    if (id >= VX_MASTER && id < VX_MASTER + 12) return vesper_fx_get(id - VX_MASTER);
+    if (id >= VX_SPACE && id < VX_MASTER) { unsigned v = frame_effects[id - VX_SPACE]; return v > 127U ? 127U : v; }
+    return 0;
 }
 static __attribute__((noinline)) void vesper_page_draw(unsigned visible)
 {
     if (visible == V_GLOBAL) { global_draw(); return; }
     static const char *const edit_titles[5] = {"SOUND", "TONE", "OSC", "VOICE", "MIX"};
-    static const char *const fx_titles[4] = {"DIRT", "TAPE", "CLOUD", "SPACE"};
+    static const char *const fx_titles[4] = {"DIRT", "TONE", "TEXTURE", "VERB + DELAY"};
     const char *title = visible == V_EDIT ? edit_titles[v_edit] : visible == V_ENV ? (v_filter_env ? "FILTER ENV" : "AMP ENV")
                       : visible == V_LFO ? "MOTION" : fx_titles[effects_page & 3U];
     uint32_t sig = signature(visible * 64U + v_edit * 8U + (visible == V_FX ? effects_page * 4U : track), title, (unsigned)strlen(title));
     for (unsigned t = 0; t < 4; ++t) sig = sig * 31U + (uint32_t)(uintptr_t)lush_track_name(t);
     if (cache->title_cache != sig) {
         cache->title_cache = sig;
-        paint_fill(0, 32, 240, 62, BACK);
+        paint_fill(0, 32, 240, visible == V_FX ? 44 : 62, BACK);
         text(8, 36, visible == V_EDIT ? "EDIT" : visible == V_ENV ? "ENV" : visible == V_LFO ? "LFO" : "FX",
              1, DIM, BACK);
         text(40, 34, title, 2, ACCENT, BACK);
@@ -1811,13 +1885,14 @@ static __attribute__((noinline)) void vesper_page_draw(unsigned visible)
             }
     }
     const uint8_t *ids = vesper_params(visible);
-    if (!paint_rendering || (paint_top < 190 && paint_top + PAINT_ROWS > 96)) {
+    unsigned fx = visible == V_FX, top = fx ? 78U : 96U;
+    if (!paint_rendering || (paint_top < 190 && paint_top + PAINT_ROWS > top)) {
         uint32_t shape = 0;
-        for (unsigned c = 0; c < 4; ++c) shape = shape * 67U + vesper_bar(ids[c]);
-        shape = shape * 7U + visible;
+        for (unsigned c = 0; c < 4; ++c) shape = shape * 131U + (fx ? fx_raw(ids[c]) : vesper_bar(ids[c]));
+        shape = shape * 7U + visible + effects_page * 16U;
         if (cache->middle_cache != shape) {
             cache->middle_cache = shape;
-            paint_fill(0, 96, 240, 94, BACK);
+            paint_fill(0, top, 240, 190 - top, BACK);
             if (visible == V_ENV && lush_param_applies(track, ids[0])) {
                 /* The envelope's shape: attack, decay to sustain, hold, release. */
                 unsigned a = vesper_bar(ids[0]), d = vesper_bar(ids[1]), sus = vesper_bar(ids[2]), r = vesper_bar(ids[3]);
@@ -1834,9 +1909,10 @@ static __attribute__((noinline)) void vesper_page_draw(unsigned visible)
                 }
             } else
                 for (unsigned c = 0; c < 4; ++c) {
-                    unsigned h = vesper_bar(ids[c]), x = 6 + 59 * c;
-                    paint_fill(x, 120, 54, 66, PANEL);
-                    if (h) paint_fill(x, 186 - h, 54, h, visible == V_FX ? ACCENT : colors[track]);
+                    /* FX faders are tall: about one pixel per value step */
+                    unsigned h = fx ? fx_raw(ids[c]) * 106U / 127U : vesper_bar(ids[c]), x = 6 + 59 * c;
+                    paint_fill(x, fx ? 80 : 120, 54, fx ? 106 : 66, PANEL);
+                    if (h) paint_fill(x, 186 - h, 54, h, fx ? ACCENT : colors[track]);
                 }
         }
     }
@@ -1847,7 +1923,7 @@ static __attribute__((noinline)) void vesper_page_draw(unsigned visible)
         knob(c, vesper_label(ids[c]), value, visible == V_FX ? ACCENT
              : lush_param_applies(track, ids[c]) || ids[c] >= VP_SOUND ? colors[track] : DIM);
     }
-    const char *hint = notice ? notice : visible == V_FX ? "FX / SELECT  NEXT PAGE"
+    const char *hint = notice ? notice : visible == V_FX ? "FX NEXT PAGE  HOLD SEL FINE"
                      : visible == V_EDIT ? "ALGO VOICE  EDIT NEXT PAGE"
                      : visible == V_ENV ? "ALGO VOICE  SELECT AMP/FILTER" : "ALGO VOICE  PRESETS SCENE";
     uint32_t h = signature(0, hint, (unsigned)strlen(hint));
@@ -1861,9 +1937,11 @@ static __attribute__((noinline)) void vesper_page_draw(unsigned visible)
 static void vesper_controls(const struct fm1_controls *controls)
 {
     if (page == V_GLOBAL) {
+        /* SELECT scrolls the rows; ALGORITHM or K1 changes the one picked. */
         v_global_row = (unsigned)clamp((int)v_global_row + controls->encoders[0], 0, G_ROWS - 1);
-        global_edit(v_global_row, v_global_row == G_SWING || v_global_row == G_CLICK
-                                  ? turn_fine(2, controls->encoders[2]) : controls->encoders[2]);
+        int change = controls->encoders[2] + controls->encoders[1];
+        unsigned e = controls->encoders[2] ? 2U : 1U;
+        global_edit(v_global_row, v_global_row == G_SWING ? turn_fine(e, change) : change);
         return;
     }
     if (controls->encoders[1]) select_track(controls->encoders[1]);
@@ -1881,7 +1959,9 @@ static void vesper_controls(const struct fm1_controls *controls)
         if (ids[c] == VX_SPACE + 1) delta = turn_fine(2 + c, delta); /* delay time */
         else if (ids[c] < LUSH_PARAMS && ids[c] != LP_UNISON && ids[c] != LP_CHORUS && ids[c] != LP_RATE)
             delta = turn_span(2 + c, delta, lush_param_span(ids[c]));        /* every voice value: ~32 clicks end to end */
-        else if (ids[c] == VP_LEVEL || ids[c] >= VX_SPACE)
+        else if (ids[c] >= VX_SPACE)
+            delta = turn_span(2 + c, delta, 64);   /* FX: 2 per click, about 64 clicks end to end */
+        else if (ids[c] == VP_LEVEL)
             delta = turn(2 + c, delta);
         if (ids[c] >= VX_SPACE && ids[c] < VX_MASTER) {
             /* stock shared FX: TIME steps divisions or ms one at a time */
@@ -2061,7 +2141,13 @@ static void draw_page_body(const struct fm1_ble_status *ble)
                                                   "TRACK 5", "TRACK 6", "TRACK 7", "TRACK 8"};
             label = labels[t];
             color = colors[t];
-            decimal(value, views[t].volume, 1);
+            if (sel_held && lush_track_name(t)) { /* holding SEL: the knobs pan */
+                static const char *const pans[4] = {"PAN 1", "PAN 2", "PAN 3", "PAN 4"};
+                int pos = lush_param_get(t, LP_POS);
+                label = pans[col];
+                if (!pos) strcpy(value, "C");
+                else { value[0] = pos < 0 ? 'L' : 'R'; decimal(value + 1, pos < 0 ? -pos : pos, 1); }
+            } else decimal(value, views[t].volume, 1);
 #if !WORSHIP_SLIM /* stock tone / DX7 editor footers: those pages are not reachable in VESPER */
         } else if (visible == TONE_EDIT || (visible == FM_ENV && v->type != GROOVE_DX7)) {
             unsigned parameter = tone_parameter(col);
@@ -2214,6 +2300,13 @@ static void draw(const struct fm1_ble_status *ble)
         }
     }
     if (visible == V_FX) groove_effects_get(frame_effects);
+    if (visible == MIX) { /* meter heights for this frame: rise at once, fall smoothly */
+        for (unsigned t = 0; t < 4; ++t) {
+            unsigned level = lush_track_name(t) ? lush_track_level(t) : frame_views[t].audible ? frame_views[t].level : 0U;
+            unsigned target = level * 100U / 127U;
+            frame_lit[t] = (uint8_t)(target >= frame_lit[t] ? target : frame_lit[t] - (frame_lit[t] - target + 3U) / 4U);
+        }
+    }
     if (visible == EFFECTS) {
         groove_effects_get(frame_effects);
         if (!effects_page) {
@@ -2438,6 +2531,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
     previous_buttons = controls->buttons;
     previous_keys = controls->keys;
     blocked_keys &= controls->keys;
+    sel_held = (controls->buttons & BUTTON(SCL)) != 0;
     {   /* Header *: something was changed since the preset/project was loaded or saved. */
         static uint8_t events_seen;
         uint8_t events = vesper_project_events();
@@ -2574,7 +2668,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         goto controls_done;
     }
 #endif
-    if (arp_down && !arp_long && now - arp_ms >= 600U) {
+    if (!WORSHIP_SLIM && arp_down && !arp_long && now - arp_ms >= 600U) {
         arp_long = 1; if (page != ARP_EDIT) arp_page = 0; page = ARP_EDIT;
         goto controls_done;
     }
@@ -2706,8 +2800,10 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             glo_used = 1;
         select_track(controls->encoders[0]);
         for (unsigned i = 0; i < 4; ++i)
-            if (controls->encoders[2 + i])
-                groove_control_edit((track & ~3U) + i, 0, turn(2 + i, controls->encoders[2 + i]), 0);
+            if (controls->encoders[2 + i]) {
+                if (sel_held && page == MIX) { (void)lush_param_edit(i, LP_POS, controls->encoders[2 + i] * 3); groove_project_touch(); } /* ~42 clicks L to R */
+                else groove_control_edit((track & ~3U) + i, 0, turn(2 + i, controls->encoders[2 + i]), 0);
+            }
         for (unsigned i = 0; i < 16; ++i)
             if ((key_down & ~blocked_keys) & (1U << white_keys[i]))
                 groove_mix_toggle(i & 7U, i >= 8);
@@ -2799,6 +2895,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             else if (action <= 10) r = groove_edit_clear(track, cursor, action - 8);
             else if (action <= 13) r = groove_edit_repeat(track, (action - 9) * 16);
             else if (action == 14) r = groove_edit_undo();
+#if !WORSHIP_SLIM
             else if (action == 15) { r = groove_timbre_export(track, (uint8_t *)&tone_clip, sizeof tone_clip); tone_clip_ready = !r; }
             else if (action == 16) r = tone_clip_ready ? groove_timbre_import(track, (uint8_t *)&tone_clip, sizeof tone_clip) : -1;
             else if (action == 17) {
@@ -2808,10 +2905,9 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
 #endif
                     r = -1;
             } else if (action == 18) {
-#if !WORSHIP_SLIM
                 page = BLE; ble_view = ble_forget = ble_action = 0; ble_result = 0;
-#endif
             }
+#endif
             else {
                 if (!post(0xff, 0, 0, 1)) return 0;
                 memset(key_note, 0xff, sizeof key_note); project_keys = 0; writing = 0; page = OVERVIEW;
@@ -2992,7 +3088,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                         }
                     }
                 }
-                if (page == ARP_EDIT) {
+                if (!WORSHIP_SLIM && page == ARP_EDIT) {
                     arp_page = (unsigned)clamp((int)arp_page + controls->encoders[1], 0, 1);
                     for (unsigned i = 0; i < 4; ++i) if (controls->encoders[2 + i]) {
                         if (arp_page) { if (i < 2) groove_arp_edit(track, i + 4, controls->encoders[2 + i]); }
