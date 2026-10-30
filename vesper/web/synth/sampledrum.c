@@ -30,11 +30,12 @@ uint8_t *sampledrum_encode(const int16_t *pcm, unsigned frames, unsigned *bytes)
 {
 #ifdef VESPER_FMB
     (void)pcm; (void)frames; if (bytes) *bytes = 0; return NULL;
-#endif
+#else
     if (!pcm || !frames || frames > SAMPLE_DRUM_MAX_FRAMES || !bytes) return NULL;
     uint8_t *data = fm1_sea_encode(pcm, frames, sample_dqt);
     *bytes = data ? ((frames + 319U) / 320U) * CHUNK_BYTES : 0;
     return data;
+#endif
 }
 int sampledrum_bind(unsigned pad, const uint8_t *data, unsigned bytes, unsigned frames,
                     const char *name)
