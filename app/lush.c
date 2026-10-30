@@ -198,6 +198,7 @@ int lush_param_applies(unsigned track, unsigned id)
     if (id == LP_OCTAVE) return 1;
     return id < LUSH_PARAMS && (params[id].kinds >> voice_patch[track].ks & 1U);
 }
+int lush_param_span(unsigned id) { return id < LUSH_PARAMS ? params[id].max - params[id].min : 4; }
 int lush_param_get(unsigned track, unsigned id)
 {
     if (track >= TRACKS) return 0;

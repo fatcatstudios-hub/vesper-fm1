@@ -9,6 +9,8 @@
   "app/board/panel.c:None": "fc28e5d73dc513bc",
   "app/project.c:^void groove_project_init\\(void\\)": "9371a0cac4341ad0",
   "app/project.c:^void groove_project_poll\\(void\\)": "9067a80c83d2d4d0",
-  "app/screen.c:^static uint16_t paint_pixels\\[.*$": "38c5dc63fc6646ee"
+  "app/screen.c:^static uint16_t paint_pixels\\[.*$": "38c5dc63fc6646ee",
+  "app/board/fm1_input.h:None": "7a0b794b7f9a2dec",
+  "app/board/device.c:None": "d92ed5436d32e6a6"
  }
 }

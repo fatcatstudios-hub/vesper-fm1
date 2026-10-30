@@ -379,23 +379,39 @@ static void read_encoders(const struct fm1_controls *controls, uint32_t now, uns
 static unsigned web_fine;
 void groove_screen_web_fine(unsigned fine) { web_fine = fine; }
 #endif
-/* VESPER knob feel. turn(): 0..127 values move 2 per click and up to 12 when
- * spun, so a full sweep is about a turn. turn_fine(): tempo, swing and other
- * exact values move 1 per click but speed up just as quickly when spun. */
-static int turn_fine(unsigned encoder, int value)
+/* VESPER knob feel (0.8.10). Every value sweeps its whole range in about 32
+ * clicks (a bit over a turn) when turned steadily, and up to three times
+ * faster when spun. The speed-up follows how fast the knob is really turning
+ * (clicks per second, smoothed), not how many clicks one poll happened to
+ * catch, and fractions carry over, so equal turns give equal changes. */
+static uint32_t turn_ms[7];
+static int16_t turn_rate[7], turn_frac[7];
+static int turn_scaled(unsigned e, int value, int base_q4, int boost_q4)
 {
-    int amount = value < 0 ? -value : value;
-    int gain = amount < 2 ? 1 : amount < 3 ? 3 : amount < 5 ? 5 : 8;
-    if (gain < (int)encoder_speed[encoder] * 3 / 2) gain = (int)encoder_speed[encoder] * 3 / 2;
-    return value * gain;
+    if (!value || e >= 7) return 0;
+    uint32_t now = fm1_millis(), dt = now - turn_ms[e];
+    turn_ms[e] = now;
+    int n = value < 0 ? -value : value;
+    int inst = dt > 250U ? 0 : (int)((unsigned)n * 1000U / (dt ? dt : 1U)); /* clicks per second */
+    if (inst > 200) inst = 200;
+    turn_rate[e] = (int16_t)((turn_rate[e] * 3 + inst) / 4);
+    int rate = turn_rate[e] < 10 ? 0 : turn_rate[e] - 10;                  /* below 10/s: steady, no boost */
+    int gain = base_q4 + (rate >= 30 ? boost_q4 : boost_q4 * rate / 30);
+    if ((turn_frac[e] < 0) != (value < 0)) turn_frac[e] = 0;              /* reversing starts clean */
+    int total = value * gain + turn_frac[e], out = total / 16;
+    turn_frac[e] = (int16_t)(total - out * 16);
+    return out;
 }
-static int turn(unsigned encoder, int value)
+/* A value with `span` steps (max - min): ~32 clicks end to end, x3 spun. */
+static int turn_span(unsigned e, int value, int span)
 {
-    int amount = value < 0 ? -value : value;
-    int gain = amount < 2 ? 2 : amount < 3 ? 4 : amount < 5 ? 7 : 12;
-    if (gain < 2 * (int)encoder_speed[encoder]) gain = 2 * (int)encoder_speed[encoder];
-    return value * gain;
+    int base = span * 16 / 32;
+    if (base < 16) base = 16;                                              /* never less than 1 per click */
+    return turn_scaled(e, value, base, base * 2);
 }
+static int turn(unsigned encoder, int value) { return turn_span(encoder, value, 127); }
+/* Tempo, swing, click, delay ms: exactly 1 per click when steady, up to 6 spun. */
+static int turn_fine(unsigned encoder, int value) { return turn_scaled(encoder, value, 16, 80); }
 static int fm_encoder_delta(unsigned encoder, int16_t value)
 {
 #ifdef FM1_HOST_TEST
@@ -1848,8 +1864,10 @@ static void vesper_controls(const struct fm1_controls *controls)
         int delta = controls->encoders[2 + c];
         if (!delta) continue;
         if (ids[c] == VX_SPACE + 1) delta = turn_fine(2 + c, delta); /* delay time */
-        else if (ids[c] != VP_SOUND && ids[c] != LP_OCTAVE && ids[c] != LP_UNISON && ids[c] != LP_CHORUS && ids[c] != LP_RATE)
-            delta = turn(2 + c, delta); /* wide ranges: two per click, up to twelve spun */
+        else if (ids[c] < LUSH_PARAMS && ids[c] != LP_UNISON && ids[c] != LP_CHORUS && ids[c] != LP_RATE)
+            delta = turn_span(2 + c, delta, lush_param_span(ids[c]));        /* every voice value: ~32 clicks end to end */
+        else if (ids[c] == VP_LEVEL || ids[c] >= VX_SPACE)
+            delta = turn(2 + c, delta);
         if (ids[c] >= VX_SPACE && ids[c] < VX_MASTER) {
             /* stock shared FX: TIME steps divisions or ms one at a time */
             groove_effects_edit(ids[c] - VX_SPACE, ids[c] == VX_SPACE + 1 && groove_delay_synced(frame_effects[1]) ? controls->encoders[2 + c] : delta);

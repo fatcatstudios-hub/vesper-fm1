@@ -63,6 +63,7 @@ void lush_voice_set(unsigned track, unsigned patch);
 unsigned lush_voice_sound(unsigned track);
 int lush_param_applies(unsigned track, unsigned id);
 int lush_param_get(unsigned track, unsigned id);
+int lush_param_span(unsigned id);   /* max - min of a voice value */
 int lush_param_edit(unsigned track, unsigned id, int delta);  /* returns the new value */
 unsigned lush_voice_export(unsigned track, uint8_t *out);     /* LUSH_VOICE_BYTES, or 0 */
 int lush_voice_import(unsigned track, const uint8_t *in);

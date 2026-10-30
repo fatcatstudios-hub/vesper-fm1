@@ -22,6 +22,8 @@ CRITICAL = [
     ('app/screen.c', r'^static void paint_mark\('),
     ('app/audio_output.c', r'^FM1_AUDIO_CODE void fm1_output_mix\('),
     ('app/board/panel.c', None),
+    ('app/board/fm1_input.h', None),   # key/encoder scanner, runs in the scan interrupt
+    ('app/board/device.c', None),      # timers and the 10 kHz scan tick
     ('app/project.c', r'^void groove_project_init\(void\)'),
     ('app/project.c', r'^void groove_project_poll\(void\)'),
 ]
