@@ -124,7 +124,11 @@ static const uint8_t font[36][5] = {
  * A page change never exposes the temporary background clear on the panel. */
 enum { PAINT_ROWS = 16, PAINT_BANDS = FM1_SCREEN_HEIGHT / PAINT_ROWS };
 _Static_assert(FM1_SCREEN_WIDTH * PAINT_ROWS <= FM1_SCREEN_DMA_PIXELS, "LCD band capacity");
-static uint16_t paint_pixels[FM1_SCREEN_WIDTH * PAINT_ROWS];
+/* 1.1: two band buffers. While the DMA sends one band, the next is drawn into
+ * the other, so drawing and sending overlap. Nothing ever waits for the DMA:
+ * a pass that finds both buffers busy simply returns (0.7.1 lesson). */
+static uint16_t paint_buffers[2][FM1_SCREEN_WIDTH * PAINT_ROWS];
+static uint16_t *paint_pixels = paint_buffers[0];
 static uint8_t paint_left[PAINT_BANDS], paint_right[PAINT_BANDS];
 static unsigned paint_rendering, paint_top, paint_next, paint_x, paint_end;
 static uint32_t paint_priority;
@@ -272,7 +276,11 @@ static unsigned music_page, subpage_return, project_return, rec_before_press, ef
 static unsigned seq_page, arp_page;
 static unsigned boot_active, boot_phase, boot_waiting;
 static uint32_t boot_started;
+#if WORSHIP_SLIM /* VESPER: per-track MIDI pages left out; GLO holds the MIDI settings */
+static const char *const seq_pages[] = {"1/5 BASIC", "2/5 STEP DETAILS", "3/5 RHYTHM/REC", "4/5 LOCKS", "5/5 SYNC / LOOP"};
+#else
 static const char *const seq_pages[] = {"1/8 BASIC", "2/8 STEP DETAILS", "3/8 RHYTHM/REC", "4/8 LOCKS", "5/8 SYNC / LOOP", "6/8 MIDI TRACK", "7/8 MIDI ROUTING", "8/8 TRACK ROLE"};
+#endif
 static unsigned rec_down, rec_used;
 static uint32_t rec_ms;
 static int octave;
@@ -2116,13 +2124,13 @@ static void draw_page_body(const struct fm1_ble_status *ble)
                 else decimal(value, v->tempo, 1);
             } else if (col == 2) decimal(value, v->next_length, 1);
             else { static const char *const sources[] = {"AUTO", "USB", "BLE", "DIN"}; strcpy(value, sources[groove_midi_setting(track,6)]); }
-        } else if (visible == STEPS && seq_page == 7) {
+        } else if (!WORSHIP_SLIM && visible == STEPS && seq_page == 7) {
             static const char *const roles[] = {"NORMAL", "PLAY", "OFF"};
             label = col == 0 ? "ROLE" : col == 1 ? "IN CH" : "";
             if (!col) strcpy(value,roles[groove_track_role(track)]);
             else if (col == 1) decimal(value,groove_midi_input_channel(track)+1,1);
             else value[0] = 0;
-        } else if (visible == STEPS && seq_page >= 5) {
+        } else if (!WORSHIP_SLIM && visible == STEPS && seq_page >= 5) {
             static const uint8_t parameters[2][4] = {{0,1,2,4},{3,5,7,8}};
             static const char *const labels[2][4] = {{"SEQ/ARP", "OUT CH", "OUT PORT", "KEY OUT"}, {"LOCAL", "CLK OUT", "THRU IN", "THRU OUT"}};
             static const char *const modes[] = {"LOCAL", "BOTH", "MIDI"};
@@ -2332,43 +2340,54 @@ static void draw(const struct fm1_ble_status *ble)
 }
 static void paint_flush(void)
 {
+    /* A band drawn ahead and waiting for the DMA: its buffer and rectangle. */
+    static unsigned ready_buffer = 2U, ready_left, ready_top, ready_width, sending = 2U;
     uint32_t started = fm1_millis();
     paint_rendering = 1;
     cache = &band_cache;
-    for (unsigned visited = 0; visited < PAINT_BANDS; ++visited) {
+    for (unsigned visited = 0; visited <= PAINT_BANDS; ++visited) {
         int pending = fm1_screen_pending();
-        if (pending) {
-            if (pending < 0) saved_cache.shown_page = ~0U;
-            break;
+        if (pending < 0) { saved_cache.shown_page = ~0U; ready_buffer = 2U; sending = 2U; break; }
+        if (!pending) sending = 2U;
+        if (ready_buffer < 2U && !pending) { /* the DMA is free: send the band drawn ahead */
+            unsigned b = ready_buffer;
+            ready_buffer = 2U;
+            if (fm1_screen_submit(ready_left, ready_top, ready_width, PAINT_ROWS,
+                                  paint_buffers[b], ready_width * PAINT_ROWS)) {
+                saved_cache.shown_page = ~0U; /* Retry the whole page after a transport error. */
+                break;
+            }
+            sending = b;
+            pending = 1;
         }
-        unsigned band = paint_next;
+        if (ready_buffer < 2U) break;          /* one band sending, one waiting: come back next pass */
+        if (fm1_millis() - started >= 4U) break;
+        unsigned band = paint_next, found = 0;
         /* Fresh knob/key feedback goes ahead of the rest of a page repaint.
          * Rotate within that set so continuous motion cannot starve its text. */
-        if (paint_priority)
-            for (unsigned i = 0; i < PAINT_BANDS; ++i) {
-                unsigned candidate = (paint_next + i) % PAINT_BANDS;
-                if (paint_priority & (1U << candidate)) { band = candidate; break; }
-            }
+        for (unsigned i = 0; i < PAINT_BANDS && !found; ++i) {
+            unsigned candidate = (paint_next + i) % PAINT_BANDS;
+            if ((paint_priority & (1U << candidate)) && paint_left[candidate] < paint_right[candidate]) { band = candidate; found = 1; }
+        }
+        for (unsigned i = 0; i < PAINT_BANDS && !found; ++i) {
+            unsigned candidate = (paint_next + i) % PAINT_BANDS;
+            if (paint_left[candidate] < paint_right[candidate]) { band = candidate; found = 1; }
+        }
+        if (!found) break;
         paint_next = (band + 1U) % PAINT_BANDS;
         unsigned left = paint_left[band], width = paint_right[band] - left;
-        if (left >= paint_right[band]) continue;
+        unsigned b = sending == 0U ? 1U : 0U;  /* never the buffer the DMA is reading */
+        paint_pixels = paint_buffers[b];
         paint_top = band * PAINT_ROWS;
         paint_x = left;
         paint_end = left + width;
-        memset(cache, 0xff, sizeof *cache);
-        draw_page(&frame_ble);
-        /* Rasterize directly into the tightly packed DMA rectangle. */
-        if (fm1_screen_submit(left, paint_top, width, PAINT_ROWS,
-                            paint_pixels, width * PAINT_ROWS)) {
-            saved_cache.shown_page = ~0U; /* Retry the whole page after a transport error. */
-            break;
-        }
+        /* Marks made from here on belong to the next drawing of this band. */
         paint_left[band] = FM1_SCREEN_WIDTH;
         paint_right[band] = 0;
         paint_priority &= ~(1U << band);
-        /* The DMA borrows paint_pixels. The next iteration/poll must observe
-         * completion before composing another band into that same buffer. */
-        if (fm1_millis() - started >= 4U) break;
+        memset(cache, 0xff, sizeof *cache);
+        draw_page(&frame_ble);
+        ready_buffer = b; ready_left = left; ready_top = paint_top; ready_width = width;
     }
     paint_rendering = 0;
     cache = &saved_cache;
@@ -3052,7 +3071,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
 #endif
                 int oct_delta = (int)((pressed >> OCT_UP) & 1U) - (int)((pressed >> OCT_DOWN) & 1U);
                 if (page == STEPS) {
-                    unsigned next = (unsigned)clamp((int)seq_page + controls->encoders[1], 0, 7);
+                    unsigned next = (unsigned)clamp((int)seq_page + controls->encoders[1], 0, WORSHIP_SLIM ? 4 : 7);
                     struct groove_view v = {0}; groove_get_view(track, cursor, &v);
                     int move = controls->encoders[6] + (!next ? controls->encoders[3] : 0);
                     if (next != seq_page || move || oct_delta) {
@@ -3073,14 +3092,14 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                         if (controls->encoders[3] && groove_clock_mode()) {
                             notice = "EXT CLOCK - CHANGE BPM AT SOURCE"; notice_until = now + 2000U;
                         }
-                    } else if (seq_page == 7) {
+                    } else if (!WORSHIP_SLIM && seq_page == 7) {
                         if (controls->encoders[2] || controls->encoders[3]) { blocked_keys |= controls->keys; if (!release_keys()) return 0; }
                         for (unsigned i=0;i<2;++i) if (controls->encoders[2+i]) {
                             int r=groove_settings_track(track,i,controls->encoders[2+i]);
                             notice=r ? "TRACK SETTING FAILED" : "TRACK SETTING - NOTES RELEASED";
                             notice_until=now+1500U;
                         }
-                    } else if (seq_page >= 5) {
+                    } else if (!WORSHIP_SLIM && seq_page >= 5) {
                         static const uint8_t parameters[2][4] = {{0,1,2,4},{3,5,7,8}};
                         for (unsigned i = 0; i < 4; ++i) if (controls->encoders[2+i]) {
                             groove_settings_midi(track,parameters[seq_page-5][i],controls->encoders[2+i]);

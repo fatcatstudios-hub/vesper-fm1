@@ -4,7 +4,7 @@
 
 /* WORSHIP build number: on the start screen and in every file name. */
 #define FIRMWARE_NAME "VESPER"   /* shown on the boot screen and the updater */
-#define WORSHIP_VERSION "1.0.0"
+#define WORSHIP_VERSION "1.1.0"
 #define FM1_RELEASE_VERSION "V14"
 #define FM1_UPDATE_PRODUCT "FM-1_8000014"
 

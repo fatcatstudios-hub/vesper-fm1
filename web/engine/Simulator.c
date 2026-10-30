@@ -84,6 +84,33 @@ int fm1_screen_blit(unsigned x, unsigned y, unsigned w, unsigned h,
     if (w) screen_changed(y, h);
     return 0;
 }
+#ifdef SIM_SLOW_DMA
+/* Test build: a transfer stays pending for a few polls, like the real DMA, and
+ * the buffer is checked for writes while it is borrowed. */
+static uint16_t *dma_buffer, dma_copy[FM1_SCREEN_DMA_PIXELS];
+static unsigned dma_x, dma_y, dma_w, dma_h, dma_polls, dma_violations;
+EXPORT("sim_dma_violations") unsigned sim_dma_violations(void) { return dma_violations; }
+int fm1_screen_blit(unsigned x, unsigned y, unsigned w, unsigned h, const uint16_t *source, size_t count);
+int fm1_screen_pending(void)
+{
+    if (!dma_buffer) return 0;
+    if (dma_polls--) return 1;
+    for (unsigned i = 0; i < dma_w * dma_h; ++i) if (dma_buffer[i] != dma_copy[i]) { ++dma_violations; break; }
+    for (unsigned i = 0; i < dma_w * dma_h; ++i) dma_copy[i] = (uint16_t)((dma_copy[i] << 8) | (dma_copy[i] >> 8));
+    fm1_screen_blit(dma_x, dma_y, dma_w, dma_h, dma_copy, dma_w * dma_h);
+    dma_buffer = 0;
+    return 0;
+}
+int fm1_screen_submit(unsigned x, unsigned y, unsigned w, unsigned h, uint16_t *source, size_t count)
+{
+    if (!w || !h || w > 240U || h > 240U || w * h > FM1_SCREEN_DMA_PIXELS || count < w * h) return -1;
+    if (dma_buffer) return 1;
+    for (unsigned i = 0; i < w * h; ++i) source[i] = (uint16_t)((source[i] << 8) | (source[i] >> 8));
+    memcpy(dma_copy, source, w * h * 2);
+    dma_buffer = source; dma_x = x; dma_y = y; dma_w = w; dma_h = h; dma_polls = 2;
+    return 0;
+}
+#else
 /* Browser pixel copies complete immediately. */
 int fm1_screen_pending(void) { return 0; }
 int fm1_screen_submit(unsigned x, unsigned y, unsigned w, unsigned h,
@@ -96,6 +123,7 @@ int fm1_screen_submit(unsigned x, unsigned y, unsigned w, unsigned h,
             source[i] = (uint16_t)((source[i] << 8) | (source[i] >> 8));
     return result;
 }
+#endif
 /* Settings work in the preview; discovery and links require the real radio. */
 int fm1_bluetooth_configure(unsigned features)
 {

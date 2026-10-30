@@ -27,7 +27,7 @@ CRITICAL = [
     ('app/project.c', r'^void groove_project_init\(void\)'),
     ('app/project.c', r'^void groove_project_poll\(void\)'),
 ]
-DECLS = [('app/screen.c', r'^static uint16_t paint_pixels\[.*$')]
+DECLS = [('app/screen.c', r'^static uint16_t \*?paint_pixels\b.*$'), ('app/screen.c', r'^static uint16_t paint_buffers\[.*$')]
 
 
 def body(path, start):
