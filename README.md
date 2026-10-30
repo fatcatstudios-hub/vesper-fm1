@@ -2,7 +2,7 @@
 
 An ambient worship firmware for the M-VAVE FM-1, by Fat Cat Studios.
 
-![HOME](docs/images/vesper-home.png) ![Mixer](docs/images/vesper-mixer.png) ![FX](docs/images/vesper-fx.png)
+![VESPER](docs/images/vesper-boot.png) ![HOME](docs/images/vesper-home.png) ![Mixer](docs/images/vesper-mixer.png) ![FX](docs/images/vesper-fx.png)
 
 Each of VESPER's 16 scenes stacks four lush voices around a key. Typical layers are an arp, a lead, a bass and a swell. Everything stays in a major key you choose. Play the voices live over the scene, record into it, and shape the whole mix with a global effects chain built for pads and atmosphere.
 
