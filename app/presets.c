@@ -511,14 +511,35 @@ static int8_t voice_scene = -2;
 enum { FX_AT = 4 + LUSH_VOICE_BYTES };
 static const uint8_t fx_neutral[LUSH_MASTER_PARAMS] = {0, 0, 64, 64, 0, 127, 48, 64, 0, 0, 0, 127};
 static uint8_t master_fx[LUSH_MASTER_PARAMS] = {0, 0, 64, 64, 0, 127, 48, 64, 0, 0, 0, 127};
-static uint8_t fx_pending[LUSH_MASTER_PARAMS], fx_pending_ok;
+static uint8_t fx_pending[LUSH_MASTER_PARAMS + 1], fx_pending_ok;
+/* HOME K2 SPACE macro (0.8.11): one knob adds grains, shimmer, reverb, echo
+ * and a cleaner low end on top of the FX pages' own settings. */
+static uint8_t space_macro;
+static uint8_t space_add(unsigned v, unsigned amount) { v += space_macro * amount / 127U; return (uint8_t)(v > 127U ? 127U : v); }
+static void fx_apply(void)
+{
+    uint8_t v[LUSH_MASTER_PARAMS];
+    memcpy(v, master_fx, sizeof v);
+    v[0] = space_add(v[0], 60);   /* GRAINS */
+    v[1] = space_add(v[1], 50);   /* SHIMMER */
+    v[4] = space_add(v[4], 45);   /* HI PASS, up to ~110 Hz more */
+    lush_master(v);
+}
+unsigned vesper_space_get(void) { return space_macro; }
+void vesper_space_edit(int delta)
+{
+    int v = (int)space_macro + delta;
+    space_macro = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+    fx_apply();
+    groove_project_touch();
+}
 unsigned vesper_fx_get(unsigned i) { return i < LUSH_MASTER_PARAMS ? master_fx[i] : 0U; }
 void vesper_fx_edit(unsigned i, int delta)
 {
     if (i >= LUSH_MASTER_PARAMS || !delta) return;
     int v = (int)master_fx[i] + delta;
     master_fx[i] = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
-    lush_master(master_fx);
+    fx_apply();
     groove_project_touch();
 }
 void vesper_project_store(struct groove_project *p)
@@ -529,7 +550,7 @@ void vesper_project_store(struct groove_project *p)
             (void)lush_voice_export(t, p->preset[t].data + 4);
             if (!fx_saved) {
                 uint8_t *at = p->preset[t].data + FX_AT;
-                at[0] = 'X'; at[1] = 4; memcpy(at + 2, master_fx, LUSH_MASTER_PARAMS);
+                at[0] = 'X'; at[1] = 5; memcpy(at + 2, master_fx, LUSH_MASTER_PARAMS); at[2 + LUSH_MASTER_PARAMS] = space_macro;
                 fx_saved = 1;
             }
         }
@@ -542,8 +563,9 @@ void vesper_project_loading(const struct groove_project *p)
             memcpy(pending[t], p->preset[t].data + 4, LUSH_VOICE_BYTES);
             pending_ok |= (uint8_t)(1U << t);
             const uint8_t *at = p->preset[t].data + FX_AT;
-            if (!fx_pending_ok && at[0] == 'X' && at[1] == 4) {
-                for (unsigned i = 0; i < LUSH_MASTER_PARAMS; ++i) fx_pending[i] = at[2 + i] > 127 ? 127 : at[2 + i];
+            if (!fx_pending_ok && at[0] == 'X' && (at[1] == 4 || at[1] == 5)) {
+                fx_pending[LUSH_MASTER_PARAMS] = 0; /* version 4 had no SPACE macro */
+                for (unsigned i = 0; i < LUSH_MASTER_PARAMS + (at[1] == 5); ++i) fx_pending[i] = at[2 + i] > 127 ? 127 : at[2 + i];
                 fx_pending_ok = 1;
             }
         }
@@ -562,13 +584,14 @@ void worship_poll(void)
         }
         pending_ok = 0;
         /* Global FX: the project's, else neutral with the scene's shimmer. */
-        if (fx_pending_ok) memcpy(master_fx, fx_pending, sizeof master_fx);
+        space_macro = 0;
+        if (fx_pending_ok) { memcpy(master_fx, fx_pending, sizeof master_fx); space_macro = fx_pending[LUSH_MASTER_PARAMS]; }
         else {
             memcpy(master_fx, fx_neutral, sizeof master_fx);
             master_fx[1] = scene >= 0 ? scenes[scene].shimmer : 0; /* each scene's shimmer, no grains */
         }
         fx_pending_ok = 0;
-        lush_master(master_fx);
+        fx_apply();
     }
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
         unsigned patch = scene >= 0 && t < LAYERS ? scenes[scene].lush[t] : LUSH_NONE;
@@ -583,5 +606,7 @@ void worship_poll(void)
     struct groove_view view;
     groove_get_view(0, 0, &view);
     groove_effects_get(fx);
-    lush_effects(fx, groove_delay_ticks(), view.tempo, master_fx[1]);
+    fx[3] = space_add(fx[3], 50); /* SPACE macro: more reverb / echo return */
+    fx[2] = space_add(fx[2], 30); /* and more repeats */
+    lush_effects(fx, groove_delay_ticks(), view.tempo, space_add(master_fx[1], 50));
 }

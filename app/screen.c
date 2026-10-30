@@ -564,7 +564,7 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
     unsigned beat = (v->play_step & 63U) / 4U; /* bar.beat: changes on quarter notes, not 16ths */
     uint32_t sig = percent | ((uint32_t)beat << 10) |
         ((uint32_t)v->playing << 16) | (writing << 17) |
-        ((uint32_t)v->clock_mode << 18) | ((uint32_t)v->clock_state << 19) | (step_follow << 22) | (groove_arp_enabled(track) << 23) |
+        ((uint32_t)v->clock_mode << 18) | ((uint32_t)v->clock_state << 19) | (play_mode << 22) |
         ((uint32_t)(v->sequence_length >> 4) << 24) | (groove_project_dirty() << 27) | (paused << 28) | (count << 29);
     if (sig == cache->header_cache)
         return;
@@ -594,14 +594,13 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
         char at[4] = {(char)('1' + beat / 4U), '.', (char)('1' + beat % 4U), 0};
         text(112, 7, at, 1, TEXT, BACK);
     }
-    if (first || (changed & (1U << 22)))
-        text(142, 7, step_follow ? "FOLLOW" : "EDIT  ", 1, step_follow ? GREEN : AMBER, BACK);
-    if (first || (changed & ((1U << 16) | (1U << 17) | (1U << 23) | (7U << 29)))) {
-        uint16_t color = writing ? AMBER : PANEL;
+    if (first || (changed & ((1U << 16) | (1U << 17) | (1U << 22) | (7U << 29)))) {
+        /* Recording, else KEYS while ARP has the keys playing the voice, else nothing. */
+        uint16_t color = writing ? AMBER : play_mode ? GREEN : BACK;
         paint_fill(181, 7, 51, 16, color);
         char counting[] = "CNT 4"; counting[4] = (char)('0' + count);
-        text(192, 12, writing ? count ? counting : v->playing ? "REC" : "STEP"
-             : groove_arp_enabled(track) ? "ARP" : "LIVE", 1, writing ? BACK : TEXT, color);
+        if (writing || play_mode)
+            text(192, 12, writing ? count ? counting : v->playing ? "REC" : "STEP" : "KEYS", 1, BACK, color);
     }
 }
 /* HOME, worship edition: the crystal orbit. The four layers are concentric
@@ -634,8 +633,10 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
             char name[4] = {0};
             strcpy(name, root);
             if (quality[0] == 'm') strcat(name, "m");
-            unsigned n = (unsigned)strlen(name), scale = n <= 2U ? 3U : 2U;
-            text(ORBIT_X - n * 3U * scale, ORBIT_Y - 7U * scale / 2U - 2U, name, scale, TEXT, BACK);
+            /* Centre the ink: 5-pixel glyphs on a 6-pixel pitch, so n letters are
+             * 6n - 1 pixels wide; one letter sits dead centre, "F#" centres the pair. */
+            unsigned n = (unsigned)strlen(name), scale = n <= 2U ? 3U : 2U, width = (6U * n - 1U) * scale;
+            text(ORBIT_X - width / 2U, ORBIT_Y - 7U * scale / 2U, name, scale, TEXT, BACK);
             if (quality[0] == 's') text(ORBIT_X - 12U, ORBIT_Y + 10, quality, 1, DIM, BACK);
         } else {
             number(ORBIT_X - 12, ORBIT_Y - 7, (int)first + 1, 2, 2, TEXT, BACK); /* page start */
@@ -2091,10 +2092,10 @@ static void draw_page_body(const struct fm1_ble_status *ble)
             static const char *const labels[4] = {"LEVEL", "STEP", "NOTE", "BPM"};
             label = labels[col];
             if (visible == OVERVIEW && col < 3 && worship_chord_root()) {
-                static const char *const home[3] = {"KEY", "", "LEVEL"}; /* VESPER: major keys only */
+                static const char *const home[3] = {"KEY", "SPACE", "LEVEL"}; /* VESPER: major keys only */
                 label = home[col];
                 if (col == 0) strcpy(value, worship_chord_root());
-                else if (col == 1) value[0] = 0;
+                else if (col == 1) decimal(value, (int)vesper_space_get(), 1);
                 else decimal(value, v->volume, 1);
             } else if (col == 0)
                 decimal(value, v->volume, 1);
@@ -2904,10 +2905,10 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                     /* Worship HOME: ALGORITHM focuses a layer, K1 transposes the
                      * chord, K2 steps its quality, K3 layer level, K4 BPM. */
                     if (controls->encoders[1]) select_track(controls->encoders[1]);
-                    if ((controls->encoders[2] || controls->encoders[3]) &&
-                        worship_chord_edit(controls->encoders[2], 0) > 0) {
+                    if (controls->encoders[2] && worship_chord_edit(controls->encoders[2], 0) > 0) {
                         notice = worship_chord_label(); notice_until = now + 1500U;
                     }
+                    if (controls->encoders[3]) vesper_space_edit(turn(3, controls->encoders[3])); /* K2 SPACE macro */
                     if (controls->encoders[4]) groove_control_edit(track, 0, turn(4, controls->encoders[4]), 0);
                     if (controls->encoders[5]) groove_tempo_edit(turn_fine(5, controls->encoders[5]));
                     goto controls_done;
