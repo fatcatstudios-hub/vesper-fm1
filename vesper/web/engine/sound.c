@@ -1148,6 +1148,19 @@ static FM1_DSP_CODE void render_stereo(int32_t *out)
     fm1_fx_render(mix, mix_right, scratch.reverb_bus, scratch.delay_bus);
     fm1_bus_output128(out, mix, mix_right);
 }
+#ifdef VESPER_FMB
+unsigned lush_owns(unsigned track);
+static unsigned vesper_silent;
+/* every track either LUSH's or muted / silent, and the engine's effects quiet */
+static FM1_DSP_CODE unsigned vesper_engine_silent(void)
+{
+    for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
+        if (!lush_owns(t) && sources[t].ptr && track_gain(t)) { vesper_silent = 0; return 0; }
+    if (!vesper_silent && fm1_fx_active()) return 0;     /* let the engine's effects tails finish first */
+    vesper_silent = 1;
+    return 1;
+}
+#endif
 static FM1_DSP_CODE void render(int32_t *out, unsigned frames)
 {
     if (frames != FM1_BLOCK_FRAMES) {
@@ -1155,6 +1168,15 @@ static FM1_DSP_CODE void render(int32_t *out, unsigned frames)
         return;
     }
     groove_sequence_render();
+#ifdef VESPER_FMB
+    /* VESPER 2: LUSH plays its layers (their engine sources are parked) and the other tracks are muted, so
+     * the engine's own voices, mixer and effects have nothing to make: skip them (most of the engine's cost) */
+    if (vesper_engine_silent()) {
+        memset(out, 0, frames * 2U * sizeof *out);
+        for (unsigned t = 0; t < GROOVE_TRACKS; ++t) publish(t, 0);
+        return;
+    }
+#endif
     unsigned stereo = stereo_enabled || fm1_fx_active();
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
         stereo |= lfo_stereo(t) || tracks[t].pan != 64 || tracks[t].sends[0] || tracks[t].sends[1];
@@ -1207,6 +1229,12 @@ int fm1_engine_render(int32_t *output, unsigned frames)
 {
     if (!output || frames != FM1_BLOCK_FRAMES) return -1;
     render(output, frames);
+#ifdef VESPER_FMB
+    if (vesper_silent) {                                  /* nothing from the engine: the click alone */
+        groove_sequence_click(output, frames);
+        return 0;
+    }
+#endif
     groove_sequence_click(output, frames);
     render_capacity = 0;
     for (unsigned track = 0; track < GROOVE_TRACKS; ++track)

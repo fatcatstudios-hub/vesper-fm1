@@ -419,11 +419,16 @@ __attribute__((minsize)) void lush_sample_bind(unsigned slot, const uint8_t *dat
 
 /* Audio code must not call into Flash. Plain clearing loops become memset
  * calls (memset lives in Flash), so clear with a barrier the compiler keeps. */
+#ifdef VESPER_FMB
+/* VESPER 2: the audio code runs from the flash cache like the rest, so memset is fine (and much faster) */
+static LUSH_CODE void sram_clear(void *at, unsigned words) { memset(at, 0, words * 4U); }
+#else
 static LUSH_CODE void sram_clear(void *at, unsigned words)
 {
     int32_t *w = (int32_t *)at;
     for (unsigned i = 0; i < words; ++i) { w[i] = 0; __asm__ volatile("" ::: "memory"); }
 }
+#endif
 static inline LUSH_HOT int32_t sine15(uint32_t phase)
 {
     /* 256-step cycle from a quarter-wave table, mirrored by quadrant, interpolated. */

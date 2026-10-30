@@ -27,6 +27,20 @@ FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
      * Q 0.707) clears sub rumble and DC while leaving bass notes alone
      * (-0.3 dB at 60 Hz). States are Q16 above the sample; every multiply is
      * 32x32->64, which the compiler keeps inline (no flash helper). */
+#ifdef VESPER_FMB
+    {   /* VESPER 2: the same 30 Hz high-pass in single-precision float (the FPU), no 64-bit multiplies */
+        static float low[2], band[2];
+        const float f = 280.0f / 65536.0f, q = 92682.0f / 65536.0f;
+        for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) {
+            unsigned c = i & 1U;
+            float b = band[c];
+            low[c] += b * f;
+            float high = (float)output[i] - low[c] - b * q;
+            band[c] += high * f;
+            output[i] = (int32_t)high;
+        }
+    }
+#else
     {
         static int64_t low[2], band[2];
         for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) {
@@ -38,6 +52,7 @@ FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
             output[i] = high;
         }
     }
+#endif
     unsigned target = fm1_engine_output_level();
     if (target > 127U) target = 127U;
     int delta = (int)target - (int)output_gain;
@@ -49,6 +64,16 @@ FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
     unsigned right = ((unsigned)usb_gain[1] * output_gain) >> 7;
     /* Accumulate USB before clipping, then add Bluetooth.
      * Discard the block if the USB stream resets. */
+#ifdef VESPER_FMB
+    if (usb_frames != FM1_BLOCK_FRAMES)       /* VESPER 2: USB audio is fm1-base's: gain and clip in 32 bits */
+        for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) {
+            int32_t x = output[i];
+            x = x > 16777215 ? 16777215 : x < -16777216 ? -16777216 : x;     /* 25 bits: x * 127 fits */
+            int32_t value = (x * (int32_t)output_gain) >> 7;
+            output[i] = usb_frames == -2 ? 0 : value > 8388607 ? 8388607 : value < -8388608 ? -8388608 : value;
+        }
+    else
+#endif
     for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) {
         int64_t value = ((int64_t)output[i] * output_gain) >> 7;
         if (usb_frames == FM1_BLOCK_FRAMES)
