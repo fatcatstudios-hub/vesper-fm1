@@ -3,7 +3,8 @@
 Four sound layers per scene. Every page is about those four voices or the global sound.
 
 ## Hardware controls
-The FM-1 has 14 buttons: OCT-, OCT+, FX, SCL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC.
+The FM-1 has 14 buttons: OCT-, OCT+, FX, SEL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC.
+The panel prints SEL. The open SDK code calls the same button `SCL` (index 3, between FX and ENV). In VESPER 1.0, holding SEL gives fine knob steps everywhere and pan on the mixer.
 It also has 7 rotary knobs, none of which press: SELECT, PRESETS, ALGORITHM, K1-K4.
 MASTER is an analog pot.
 
@@ -13,7 +14,7 @@ MASTER is an analog pot.
 | PRESETS | Scroll through presets (scenes); user slots sit at the end of the list |
 | ALGORITHM | Choose and highlight the voice (1-4) the ENV / LFO / EDIT / ARP pages show |
 | SELECT | Select: scroll through the options on the current page |
-| Enter / OK | Confirm, OK, save. **Proposed: SCL**, since SELECT cannot be pressed (open question) |
+| SEL (hold) | The "more" key: fine steps while held; pan on the mixer |
 | K1-K4 | The four parameters shown on the current page |
 | PLAY | Play / stop |
 | REC | Record |
