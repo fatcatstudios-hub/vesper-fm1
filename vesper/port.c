@@ -284,8 +284,14 @@ static void midi_poll(void)
 }
 int vesper_sysex(const uint8_t *p, uint32_t n)
 {
+    /* only VESPER's own frames (transfer.c: project transfers 7D 'F' 'M' 02, MMC, a DX7 voice): everything else,
+     * the installer's handshake above all, is the platform's (test 3 took every frame, and so the installer
+     * could not find the FM-1) */
     static uint8_t frame[1026];
-    if (n + 2 > sizeof frame) return 0;
+    int ours = (n >= 6 && p[0] == 0x7D && p[1] == 'F' && p[2] == 'M' && p[3] == 2) ||
+               (n == 4 && p[0] == 0x7F && (p[1] == 0 || p[1] == 0x7F) && p[2] == 6) ||
+               (n == 161 && p[0] == 0x43 && p[1] < 16 && p[2] == 0 && p[3] == 1 && p[4] == 27);
+    if (!ours || n + 2 > sizeof frame) return 0;
     frame[0] = 0xF0; memcpy(frame + 1, p, n); frame[n + 1] = 0xF7;
     midi_source = FM1_MIDI_USB;
     fm1_app_sysex(frame, n + 2);
