@@ -389,6 +389,10 @@ static struct {
     char label[20];
 } follow = {-1, 0, MAJ, ""};
 
+/* 2.0: the scene the project in hand was built on, whatever it is named (renaming it on the SAVE page kept
+ * nothing of the scene in 1.x: the layers fell back to silent engine voices); for a loaded user project (saved with it, FX blob 7; for
+ * older saves, the scene whose four sounds it has). -1 for a project that is none of them. */
+static int8_t project_scene = -1;
 static int active_scene(void)
 {
     char name[13];
@@ -397,9 +401,9 @@ static int active_scene(void)
         char padded[12];
         memset(padded, ' ', sizeof padded);
         memcpy(padded, scenes[i].name, strlen(scenes[i].name));
-        if (!memcmp(name, padded, 12)) return (int)i;
+        if (!memcmp(name, padded, 12)) return project_scene = (int8_t)i;   /* sticky: renaming keeps the scene */
     }
-    return -1;
+    return project_scene;
 }
 const char *worship_chord_label(void) { return follow.label; }
 static const char *const roots[12] = {"C","C#","D","Eb","E","F","F#","G","Ab","A","Bb","B"};
@@ -555,6 +559,8 @@ void vesper_project_store(struct groove_project *p)
                 uint8_t *at = p->preset[t].data + FX_AT;
                 at[0] = 'X'; at[1] = 6; memcpy(at + 2, master_fx, LUSH_MASTER_PARAMS); at[2 + LUSH_MASTER_PARAMS] = space_macro;
                 at[3 + LUSH_MASTER_PARAMS] = (uint8_t)vesper_theme(); /* the GLO theme travels with saved projects */
+                int scene = active_scene();
+                at[1] = 7; at[4 + LUSH_MASTER_PARAMS] = (uint8_t)(scene >= 0 ? scene : 0xff); /* 2.0: its scene */
                 fx_saved = 1;
             }
         }
@@ -562,17 +568,28 @@ void vesper_project_store(struct groove_project *p)
 void vesper_project_loading(const struct groove_project *p)
 {
     pending_ok = 0; fx_pending_ok = 0; ++loads; ++project_events;
+    project_scene = -1;
     for (unsigned t = 0; p && t < LAYERS; ++t)
         if (p->preset[t].type == GROOVE_PSG && p->preset[t].data[4] == 'V') {
             memcpy(pending[t], p->preset[t].data + 4, LUSH_VOICE_BYTES);
             pending_ok |= (uint8_t)(1U << t);
             const uint8_t *at = p->preset[t].data + FX_AT;
-            if (!fx_pending_ok && at[0] == 'X' && at[1] >= 4 && at[1] <= 6) {
+            if (!fx_pending_ok && at[0] == 'X' && at[1] >= 4 && at[1] <= 7) {
                 fx_pending[LUSH_MASTER_PARAMS] = 0; /* version 4 had no SPACE macro */
-                if (at[1] == 6) theme_pending = at[3 + LUSH_MASTER_PARAMS];
+                if (at[1] >= 6) theme_pending = at[3 + LUSH_MASTER_PARAMS];
+                if (at[1] == 7 && at[4 + LUSH_MASTER_PARAMS] < GROOVE_FACTORY_PROJECTS)
+                    project_scene = (int8_t)at[4 + LUSH_MASTER_PARAMS];
                 for (unsigned i = 0; i < LUSH_MASTER_PARAMS + (at[1] >= 5); ++i) fx_pending[i] = at[2 + i] > 127 ? 127 : at[2 + i];
                 fx_pending_ok = 1;
             }
+        }
+    if (p && project_scene < 0 && pending_ok)   /* an older save: the scene with the same four sounds */
+        for (unsigned i = 0; i < GROOVE_FACTORY_PROJECTS && project_scene < 0; ++i) {
+            unsigned same = 1;
+            for (unsigned t = 0; t < LAYERS; ++t)
+                if (scenes[i].lush[t] != LUSH_NONE && (!(pending_ok & (1U << t)) || pending[t][2] != scenes[i].lush[t]))
+                    same = 0;
+            if (same) project_scene = (int8_t)i;
         }
 }
 void worship_poll(void)

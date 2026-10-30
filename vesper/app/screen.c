@@ -2844,13 +2844,30 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         goto controls_done;
     }
     if ((page == OVERVIEW || page == MIX || page >= V_EDIT) && !glo_down && controls->encoders[6]) {
-        int current = preset_loaded ? (int)preset_current_slot : controls->encoders[6] > 0 ? -1 : GROOVE_PROJECT_SLOTS;
-        unsigned slot = (unsigned)clamp(current + controls->encoders[6],
-                                        0, GROOVE_PROJECT_SLOTS - 1);
-        if (!preset_loaded || slot != preset_current_slot) {
+        /* 2.0: PRESETS runs through one list, the 16 scenes and then the saved user projects (empty slots
+         * skipped), so user presets are a turn away (1.x kept them in a bank the knob never reached). */
+        int dir = controls->encoders[6] > 0 ? 1 : -1, steps = controls->encoders[6] * dir;
+        int at = preset_loaded ? (preset_current_bank ? (int)preset_current_slot : 16 + (int)preset_current_slot)
+                               : dir > 0 ? -1 : 16;
+        int to = at;
+        for (int k = 0, p = at; k < steps; ++k) {
+            for (p += dir; p >= 16 && p < 32; p += dir) {
+                char nm[13];
+                if (groove_project_info((unsigned)(p - 16), nm) == 0) break;   /* a saved project */
+            }
+            if (p < 0 || p >= 32) break;
+            to = p;
+        }
+        if (to >= 0 && (!preset_loaded || to != at)) {
             struct groove_view view = {0}; groove_get_view(track, cursor, &view);
-            preset_slot = slot; preset_bank = preset_current_bank; preset_refresh();
+            preset_bank = to < 16; preset_slot = (unsigned)(to % 16); preset_refresh();
             preset_load(view.playing, now);
+            if (to >= 16) {
+                static char user_notice[24];
+                strcpy(user_notice, "USER 00");
+                user_notice[5] = (char)('0' + (to - 15) / 10); user_notice[6] = (char)('0' + (to - 15) % 10);
+                notice = user_notice; notice_until = now + 1500U;
+            }
         }
         goto controls_done;
     }
