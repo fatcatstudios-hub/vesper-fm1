@@ -1,0 +1,15 @@
+#!/bin/sh
+# VESPER 2: build the firmware with fm1-base.
+#   JIELI_TOOLCHAIN=/path/to/jieli-linux-toolchains AC79_SDK=/path/to/ac79-sdk tools/build.sh [--release X.Y.Z] [--host]
+# AC79_SDK: JieLi's AC79 SDK (fm1-base/bsp/tools/get_sdk.sh fetches it). The package carries three of its files
+# (the SPL and two configuration blocks); with any other copy of them the package is refused here, so nothing
+# that could not start ever reaches an FM-1.
+set -e
+cd "$(dirname "$0")/.."
+out=$(python3 fm1-base/tools/build.py . "$@" 2>&1) || { echo "$out"; exit 1; }
+echo "$out" | grep -v '^font '
+if echo "$out" | grep -q "warning: SDK"; then
+    for f in build/*.fwsc; do [ -f "$f" ] && mv "$f" "${f%.fwsc}.NOT-FOR-HARDWARE"; done
+    echo "build.sh: AC79_SDK is not JieLi's AC79NN_SDK_V1.2.1: the package is NOT for an FM-1 (renamed .NOT-FOR-HARDWARE)" >&2
+    exit 2
+fi
