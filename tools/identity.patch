@@ -1,0 +1,18 @@
+diff --git a/tools/build.py b/tools/build.py
+index a6607e3..c575a06 100755
+--- a/tools/build.py
++++ b/tools/build.py
+@@ -1091,7 +1091,12 @@ def main():
+         m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?(-[A-Za-z0-9]+)?", a.release)
+         if not m:
+             raise SystemExit(f"--release {a.release}: use X.Y[.Z][-suffix], up to two digits each")
+-        PRODUCT = prefix + "%02d%02d%02d" % (int(m[1]), int(m[2]), int(m[3] or 0))
++        if CONF.get("id_digits") == 3:              # (VESPER: the Hub knows it as id_prefix and 3 digits, one a part)
++            if max(int(m[1]), int(m[2]), int(m[3] or 0)) > 9:
++                raise SystemExit("--release: id_digits = 3 takes single-digit version parts")
++            PRODUCT = prefix + "%d%d%d" % (int(m[1]), int(m[2]), int(m[3] or 0))
++        else:
++            PRODUCT = prefix + "%02d%02d%02d" % (int(m[1]), int(m[2]), int(m[3] or 0))
+         VERSION = a.release.upper()
+         name = f"{STEM}-{a.release}.fwsc"
+     if a.host or a.web or a.rfm1:

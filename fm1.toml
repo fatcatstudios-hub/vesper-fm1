@@ -1,6 +1,7 @@
 # VESPER 2 build settings (fm1-base tools/build.py)
 name = "VESPER"
-id_prefix = "FM-1_8837"        # VESPER's identity: dev FM-1_883700, releases FM-1_8837XXYYZZ
+id_prefix = "FM-1_8837"        # VESPER's identity: dev FM-1_883700, releases FM-1_8837XYZ (the Hub's pattern)
+id_digits = 3
 usb_manufacturer = "Fat Cat Studios"
 usb_product = "VESPER FM-1"
 words = "words.tsv"

@@ -46,7 +46,7 @@ def main():
     conf = read_conf(ROOT / "fm1.toml")
     raw = pkg.read_bytes()
     product = product_of(raw)
-    if not re.fullmatch(re.escape(conf["id_prefix"]) + r"\d{6}", product):
+    if not re.fullmatch(re.escape(conf["id_prefix"]) + (r"\d{3}" if conf.get("id_digits") == 3 else r"\d{6}"), product):
         raise SystemExit(f"{pkg}: identity {product!r}: a release build only (tools/build.sh --release X.Y.Z)")
     if b"FELUCCA-LOADER-1" not in raw:
         raise SystemExit(f"{pkg}: no update loader in it")

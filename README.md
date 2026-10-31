@@ -6,7 +6,7 @@ An ambient worship firmware for the M-VAVE FM-1, by Fat Cat Studios.
 
 Each of VESPER's 16 scenes stacks four lush voices around a key. Everything stays in a major key you choose. Play the voices live over the scene, record into it, and shape the whole mix with a global effects chain built for pads and atmosphere.
 
-- **Identity:** `FM-1_8837020000` (2.0.0)
+- **Identity:** `FM-1_8837201` (2.0.1)
 - **Built on:** [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp (MPL-2.0). VESPER's own code and the open FM1 engine it plays through are GPL-3.0 with the FM1 SDK linking exception.
 - **Samples:** piano, marimba and glockenspiel from Versilian Studios VSCO-2 Community Edition (CC0). They are built into the firmware, so there is nothing extra to install.
 
@@ -36,7 +36,7 @@ The global effects:
 
 ## Installing
 
-Install from the [FM-1 Firmware Hub](https://thefirmwarehub.com), or open `FM1-VESPER-2.0.0-Installer.html` from the release in Chrome or Edge, connect the FM-1 by USB and press **Install**.
+Install from the [FM-1 Firmware Hub](https://thefirmwarehub.com), or open `FM1-VESPER-2.0.1-Installer.html` from the release in Chrome or Edge, connect the FM-1 by USB and press **Install**.
 
 - It installs over M-VAVE's original V15 or another open firmware.
 - To leave VESPER, use **Back to the stock firmware** on the same page with M-VAVE's `FM-1.fwsc`, or install any other firmware.
@@ -48,7 +48,7 @@ Install from the [FM-1 Firmware Hub](https://thefirmwarehub.com), or open `FM1-V
 ```
 git clone --recursive https://github.com/fatcatstudios-hub/vesper-fm1
 JIELI_TOOLCHAIN=/path/to/jieli-linux-toolchains AC79_SDK=/path/to/ac79-sdk tools/build.sh --release 2.0.0
-python3 tools/make_installer.py build/vesper-2.0.0.fwsc 2.0.0 FM1-VESPER-2.0.0-Installer.html
+python3 tools/make_installer.py build/vesper-2.0.0.fwsc 2.0.0 FM1-VESPER-2.0.1-Installer.html
 tools/build.sh --host        # the simulator: build/host/vesper_host SCRIPT OUTDIR
 ```
 

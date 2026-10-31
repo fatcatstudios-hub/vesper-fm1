@@ -1,5 +1,8 @@
 # VESPER changelog
 
+## 2.0.1 (2026-10-30)
+- Identity `FM-1_8837201`, the FM-1 Firmware Hub's pattern for VESPER (2.0.0 reported `FM-1_8837020000`). Nothing else changed.
+
 ## 2.0.0 (2026-10-30)
 VESPER is rebuilt on fm1-base and felucca-bsp instead of M-VAVE's FM1 Open SDK. The scenes, sounds and screens are the same.
 - **Samples built in.** Piano, marimba and glockenspiel are part of the firmware. There is no separate sample install, and the Firmware Hub installs VESPER directly.
