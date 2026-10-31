@@ -1604,6 +1604,13 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
  * breathes, and WORSHIP spells itself out underneath. boot_phase counts
  * 30 ms ticks. Everything is cached, so each frame repaints only what moved. */
 enum { BOOT_X = 120, BOOT_Y = 90, BOOT_TICKS = 90 };
+/* The browser Play page sets MASTER as it opens, so there only a real touch
+ * skips the logo, and scene 1 loads as soon as the logo is gone. */
+#if defined(VESPER_WEB)
+enum { BOOT_MASTER_SKIPS = 0, SCENE_AFTER_MS = 0 };
+#else
+enum { BOOT_MASTER_SKIPS = 1, SCENE_AFTER_MS = 4000 };
+#endif
 static __attribute__((noinline, cold, minsize)) void boot_draw(void)
 {
     static const uint8_t radius[4] = {24, 40, 56, 72};
@@ -3477,7 +3484,7 @@ void groove_screen_control(void)
     /* The logo never blocks control/audio or consumes the first gesture.
      * Ignore the initial MASTER ADC pickup when deciding whether to skip. */
     if (boot_active && ((!boot_waiting && now - boot_started >= 2700U) || controls.buttons || controls.keys ||
-        encoder_active(controls.encoders) || (master_changed && now - boot_started >= 150U))) {
+        encoder_active(controls.encoders) || (BOOT_MASTER_SKIPS && master_changed && now - boot_started >= 150U))) {
         boot_active = boot_waiting = 0;
         input_changed = 1;
     }
@@ -3537,7 +3544,7 @@ void groove_screen_control(void)
      * up on anything but a VESPER scene loads scene 1 through the same path as
      * the PRESETS knob. Once per power-up. */
     static uint8_t launched;
-    if (!launched && !boot_active && now >= 4000U) {
+    if (!launched && !boot_active && now >= SCENE_AFTER_MS) {
         launched = 1;
         if (!worship_chord_root() && !preset_loaded) { preset_slot = 0; preset_bank = 1; (void)preset_load(0, now); }
     }
