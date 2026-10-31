@@ -10,6 +10,12 @@ Each of VESPER's 16 scenes stacks four lush voices around a key. Everything stay
 - **Built on:** [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp (MPL-2.0). VESPER's own code and the open FM1 engine it plays through are GPL-3.0 with the FM1 SDK linking exception.
 - **Samples:** piano, marimba and glockenspiel from Versilian Studios VSCO-2 Community Edition (CC0). They are built into the firmware, so there is nothing extra to install.
 
+## Play it in your browser
+
+- **Online:** https://fatcatstudios-hub.github.io/vesper-fm1/play/
+- **Offline:** download the repo and open [`docs/play/index.html`](docs/play/index.html) in Chrome or Edge. It is one self-contained file, so it runs straight from your disk with no server.
+- **Cheat sheet:** [`docs/cheatsheet.html`](docs/cheatsheet.html)
+
 ## Controls
 
 | Control | What it does |
