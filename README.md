@@ -47,9 +47,9 @@ Install from the [FM-1 Firmware Hub](https://thefirmwarehub.com), or open `FM1-V
 
 ```
 git clone --recursive https://github.com/fatcatstudios-hub/vesper-fm1
-JIELI_TOOLCHAIN=/path/to/jieli-linux-toolchains AC79_SDK=/path/to/ac79-sdk tools/build.sh --release 2.0.0
-python3 tools/make_installer.py build/vesper-2.0.0.fwsc 2.0.0 FM1-VESPER-2.0.1-Installer.html
-tools/build.sh --host        # the simulator: build/host/vesper_host SCRIPT OUTDIR
+JIELI_TOOLCHAIN=/path/to/jieli-linux-toolchains AC79_SDK=/path/to/ac79-sdk tools/build.sh --release 2.0.1
+python3 tools/make_installer.py app/build/vesper-2.0.1.fwsc 2.0.1 FM1-VESPER-2.0.1-Installer.html
+tools/build.sh --host        # the simulator: app/build/host/vesper_host SCRIPT OUTDIR
 ```
 
 - `AC79_SDK` is JieLi's AC79 SDK (gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK, AC79NN_SDK_V1.2.1).
@@ -57,10 +57,10 @@ tools/build.sh --host        # the simulator: build/host/vesper_host SCRIPT OUTD
 - `tools/build.sh` refuses to make a package with any other copy of those three files.
 
 Most of VESPER lives in a few places:
-- `vesper/app/lush.c`: the synth engine and effects
-- `vesper/app/screen.c`: the user interface
-- `vesper/app/presets.c`: the scenes
-- `vesper/port.c`: the FM-1 underneath (fm1-base)
+- `app/vesper/app/lush.c`: the synth engine and effects
+- `app/vesper/app/screen.c`: the user interface
+- `app/vesper/app/presets.c`: the scenes
+- `app/vesper/port.c`: the FM-1 underneath (fm1-base)
 
 ## Credits
 

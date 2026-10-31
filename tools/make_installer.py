@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = ROOT / "fm1-base"
+BASE = ROOT / "base"
 sys.path.insert(0, str(BASE / "tools"))
 from build import read_conf  # noqa: E402
 from make_site import product_of, strip_module  # noqa: E402
@@ -43,7 +43,7 @@ RESCUE = """    if (!dev) {   // VESPER rescue: a port named like an FM-1 that d
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     pkg, version, out = Path(args[0]), args[1], Path(args[2])
-    conf = read_conf(ROOT / "fm1.toml")
+    conf = read_conf(ROOT / "app" / "fm1.toml")
     raw = pkg.read_bytes()
     product = product_of(raw)
     if not re.fullmatch(re.escape(conf["id_prefix"]) + (r"\d{3}" if conf.get("id_digits") == 3 else r"\d{6}"), product):

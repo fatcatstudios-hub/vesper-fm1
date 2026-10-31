@@ -11,6 +11,10 @@
 #include "internal.h"
 #include "fm_patch.h"
 #include "fixed.h"
+#if defined(VESPER_FMB) || defined(VESPER_WEB)
+unsigned lush_owns(unsigned track);
+void lush_note(unsigned track, unsigned note, unsigned velocity);
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -464,6 +468,12 @@ FM1_DSP_CODE void groove_note_ex(unsigned track, unsigned note, unsigned velocit
             if (arpeggio[track].note == note) arpeggio[track].note = 0xff;
         }
     }
+#if defined(VESPER_FMB) || defined(VESPER_WEB)
+    /* VESPER 2: a key played live from MIDI (no arpeggiator) sounds on the layer's LUSH voice, as the panel's
+     * keys do in play mode; the engine's own voice on a LUSH layer is a silent placeholder */
+    if (!sequenced && !arpeggio[track].enabled && lush_owns(track) && (velocity || !live[track][note]))
+        lush_note(track, note, velocity);
+#endif
     unsigned next_generated = (seq_note[track].bits[note >> 3] & (1U << (note & 7U))) || arpeggio[track].note == note;
     if ((!velocity || tracks[track].audible) &&
         (generated != next_generated || (sequenced && velocity && groove_pad_count(track))))
@@ -1148,7 +1158,7 @@ static FM1_DSP_CODE void render_stereo(int32_t *out)
     fm1_fx_render(mix, mix_right, scratch.reverb_bus, scratch.delay_bus);
     fm1_bus_output128(out, mix, mix_right);
 }
-#ifdef VESPER_FMB
+#if defined(VESPER_FMB) || defined(VESPER_WEB)
 unsigned lush_owns(unsigned track);
 static unsigned vesper_silent;
 /* every track either LUSH's or muted / silent, and the engine's effects quiet */
@@ -1168,7 +1178,7 @@ static FM1_DSP_CODE void render(int32_t *out, unsigned frames)
         return;
     }
     groove_sequence_render();
-#ifdef VESPER_FMB
+#if defined(VESPER_FMB) || defined(VESPER_WEB)
     /* VESPER 2: LUSH plays its layers (their engine sources are parked) and the other tracks are muted, so
      * the engine's own voices, mixer and effects have nothing to make: skip them (most of the engine's cost) */
     if (vesper_engine_silent()) {
@@ -1229,7 +1239,7 @@ int fm1_engine_render(int32_t *output, unsigned frames)
 {
     if (!output || frames != FM1_BLOCK_FRAMES) return -1;
     render(output, frames);
-#ifdef VESPER_FMB
+#if defined(VESPER_FMB) || defined(VESPER_WEB)
     if (vesper_silent) {                                  /* nothing from the engine: the click alone */
         groove_sequence_click(output, frames);
         return 0;

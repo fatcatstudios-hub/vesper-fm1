@@ -1,4 +1,6 @@
+app/build/
+app/web/words/
 build/
-web/words/
+web/
 __pycache__/
 *.pyc

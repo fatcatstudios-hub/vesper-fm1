@@ -1,7 +1,9 @@
 # VESPER changelog
 
-## 2.0.1 (2026-10-30)
-- Identity `FM-1_8837201`, the FM-1 Firmware Hub's pattern for VESPER (2.0.0 reported `FM-1_8837020000`). Nothing else changed.
+## 2.0.1 (2026-10-31)
+- MIDI keyboards play again: a note from USB or the TRS jack sounds on the focused layer's voice. 2.0.0 left them silent.
+- Identity `FM-1_8837201`, the FM-1 Firmware Hub's pattern for VESPER.
+- The source follows fm1-base's usual layout (`app/`, `base/`).
 
 ## 2.0.0 (2026-10-30)
 VESPER is rebuilt on fm1-base and felucca-bsp instead of M-VAVE's FM1 Open SDK. The scenes, sounds and screens are the same.

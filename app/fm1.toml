@@ -7,12 +7,12 @@ usb_product = "VESPER FM-1"
 words = "words.tsv"
 ble = false                    # Bluetooth MIDI: later (needs JieLi's SDK libraries)
 o2 = ["vesper/port.c", "vesper/libc.c", "vesper/app/*.c", "vesper/web/engine/*.c", "vesper/web/synth/*.c", "vesper/third_party/synth/*.c"]
-ir_pass = "tools/mul64_outline.py"
+ir_pass = "mul64_outline.py"
 o2_include = ["vesper/prefix.h"]
 o2_cflags = ["-DFM1_HOST_TEST=1", "-DFM1_OPEN_WEB=1", "-DVESPER_FMB=1", "-fwrapv"]
 device_include = ["vesper/libc"]
 include = ["vesper/web/engine", "vesper/web/synth", "vesper/third_party/synth", "vesper/sdk/include", "vesper/app/synth", "vesper/app"]
-vendored = ["vesper/", "fm1-base/"]   # VESPER 1.x code, and the base itself (a submodule here)
+vendored = ["vesper/"]                # VESPER 1.x code
 tagline = "an ambient worship synth for the M-VAVE FM-1"
 repo = "https://github.com/fatcatstudios-hub/vesper-fm1"
 licence = "GPL-3.0"
