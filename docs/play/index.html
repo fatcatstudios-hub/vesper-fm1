@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>VESPER · play in the browser</title>
+<style id="vesper-play">
+/* VESPER's Play page: just the FM-1, ready to play */
+.site-header .brand,#sim-status,.navigation-row,#device-sync-status,aside.preset-home,.workspace-extras,#release-version,.language-picker,#about-open{display:none!important}
+.workspace{display:block!important}
+.performance-stage{max-width:820px;margin:0 auto}
+.vesper-help{max-width:820px;margin:14px auto 0;color:var(--muted);font-size:14px;text-align:center}
+.vesper-help b{color:var(--accent)}
+</style>
 <style>
 :root{color-scheme:dark;font:15px/1.65 system-ui,-apple-system,"Segoe UI",sans-serif;background:#121518;color:#e2e7e9;--accent:#aae4c8;--muted:#859293}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% 25%,#252c2c80,transparent 65%);min-height:100vh}main{max-width:1160px;margin:auto;padding:34px 36px 24px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:11px;letter-spacing:.16em;color:var(--muted)}header b{color:#d5dedc;letter-spacing:.2em}.version-tag{font:10px/1.4 Consolas,"Liberation Mono",monospace;letter-spacing:.08em}h1{font-size:32px;letter-spacing:-.04em;margin:20px 0 2px;font-weight:600}h2{font-size:22px;margin:0 0 10px}h3{font-size:18px}p{color:#99a7a8}main>p{margin:4px 0 22px;font-size:13px}a{color:var(--accent)}button,input,select{font:inherit}button{border:1px solid #465150;border-radius:7px;padding:9px 15px;cursor:pointer;background:#293230;color:#dde5e1;margin:5px 6px 5px 0;transition:background .12s,border-color .12s}button:hover{background:#384541;border-color:#758a80}button.primary{background:var(--accent);color:#172e24;border-color:var(--accent);font-weight:650}button.primary:hover{background:#c4f3da}button:disabled{opacity:.4;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px}[hidden]{display:none!important}nav{display:flex;gap:3px;border-bottom:1px solid #333c3b;margin-bottom:22px}nav button{background:transparent;border:0;border-radius:0;margin:0 22px 0 0;padding:10px 1px 13px;font-size:13px;color:#889a98;border-bottom:2px solid transparent}nav button[aria-selected=true]{color:#d1eee0;border-bottom-color:var(--accent)}section{padding:22px;border:1px solid #343e3d;border-radius:12px;background:#1b2221;margin:20px 0}#tab-sim{border:0;background:none;padding:0;margin:0}#tab-library,#tab-update{max-width:720px;margin:28px auto}.sim-toolbar{display:flex;gap:10px;align-items:center;margin:0 0 18px;flex-wrap:wrap}.sim-toolbar button{margin:0;font-size:12px;padding:8px 14px}.sim-health{display:flex;align-items:center;gap:9px;font-size:11px;color:#96a8a0}.sim-health:before{content:"";width:6px;height:6px;background:var(--accent);border-radius:50%;box-shadow:0 0 8px #aae4c844}.sim-health span+span{border-left:1px solid #46534d;padding-left:9px;color:#6f8379}.sim-toolbar label{margin:0 0 0 auto;display:flex;gap:8px;align-items:center;font-size:11px;color:#879b93}.sim-toolbar input{width:85px;accent-color:var(--accent)}
@@ -7120,3 +7128,16 @@ const FM1_SIMULATOR = {"schema":1,"release_version":"V14","sha256":"ae69441d84ec
 
 </script>
 </html>
+<script id="vesper-play-js">
+/* VESPER's Play page: the title, and how to play (after the page's own scripts have run) */
+addEventListener("load", () => {
+  const fix = () => { const h = document.querySelector(".site-header h1"); if (h) h.textContent = "VESPER \u00b7 play it in your browser"; document.title = "VESPER \u00b7 play in the browser"; };
+  fix(); setTimeout(fix, 500); setTimeout(fix, 2000);
+  const ws = document.querySelector("#tab-sim .workspace");
+  if (ws && !document.querySelector(".vesper-help")) {
+    const p = document.createElement("p"); p.className = "vesper-help";
+    p.innerHTML = "Press <b>PLAY</b> to start the scene. Turn <b>PRESETS</b> for the 16 scenes, <b>K2</b> for SPACE. Click the keys, or use a MIDI keyboard. VESPER for the M-VAVE FM-1, by Fat Cat Studios.";
+    ws.after(p);
+  }
+});
+</script>
