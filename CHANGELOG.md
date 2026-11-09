@@ -1,5 +1,9 @@
 # VESPER changelog
 
+## 2.0.2 (2026-11-09)
+- Works fully on the newer FM-1s. Units sold since autumn 2026 have a different flash chip (a UC25HQ80 instead of the Puya P25Q80). On those units 2.0.1 played but could not save, and could not install another firmware over itself. 2.0.2 recognises both chips (fm1-base PR #35's check; nothing else of the base changed).
+- Identity `FM-1_8837202`.
+
 ## 2.0.1 (2026-10-31)
 - MIDI keyboards play again: a note from USB or the TRS jack sounds on the focused layer's voice. 2.0.0 left them silent.
 - Identity `FM-1_8837201`, the FM-1 Firmware Hub's pattern for VESPER.

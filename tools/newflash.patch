@@ -1,0 +1,51 @@
+diff --git a/device/fm1_flash_ok.h b/device/fm1_flash_ok.h
+new file mode 100644
+index 0000000..05dd578
+--- /dev/null
++++ b/device/fm1_flash_ok.h
+@@ -0,0 +1,24 @@
++/* SPDX-License-Identifier: MPL-2.0
++ * Copyright (C) 2026 Charles Vestal */
++/* Which flash parts the FM-1's storage may use (main_fm1.c's boot, plat_fm1.c's data area).
++ *
++ * The stock FM-1 carries a Puya P25Q80 (JEDEC 85 60 14, 1 MiB). Units sold since autumn 2026 (mostly
++ * AliExpress) carry a UC25HQ80 (JEDEC B3 60 14, 1 MiB, the same plain SPI NOR commands) instead.
++ * A firmware that only knows the Puya takes those units for unknown: its saves stay in RAM and its
++ * update loader refuses to install.
++ *
++ * The list lives here, in fm1-base, and not in felucca-bsp's fm1_flash.h: the chip layer is header-only
++ * and shared with every other firmware on it, while this list is a policy of this platform's storage.
++ * An app that needs a different one (a part it has checked for itself) defines FM1B_FLASH_JEDEC_OK
++ * before including this header.
++ *
++ * Any other answer: RAM only, nothing written. */
++#ifndef FM1B_FLASH_OK_H
++#define FM1B_FLASH_OK_H
++
++/* the Puya P25Q80 (the stock part) and the UC25HQ80 (the newer units' part): both 1 MiB */
++#ifndef FM1B_FLASH_JEDEC_OK
++#define FM1B_FLASH_JEDEC_OK(id) ((id) == 0x856014u || (id) == 0xB36014u)
++#endif
++
++#endif
+diff --git a/device/main_fm1.c b/device/main_fm1.c
+index 5eaa87b..e278de5 100644
+--- a/device/main_fm1.c
++++ b/device/main_fm1.c
+@@ -38,6 +38,7 @@ static int bta_frame(const uint8_t *p, uint32_t n);
+ #if FM1B_BLE_OWN && FM1B_BLE_CENTRAL
+ static int dev_frame(const uint8_t *p, uint32_t n);   /* bt_own_central.c */
+ #endif
++#include "fm1_flash_ok.h"                          /* the flash parts the storage may use (FM1B_FLASH_JEDEC_OK) */
+ static void render_block(int32_t *o)                /* ALNK0: one half, measured */
+ {
+     uint32_t t0 = fm1_ticks(), us, budget = HALF_FRAMES * 1000000u / FS;
+@@ -884,7 +885,7 @@ static void fm1_main(void)
+                                                      * VDDIO 3.2 V, WiFi's regulator automatic (fm1_sys.h) */
+         fm1_clock_read(clock_boot);
+         clock_fix = (int8_t)fm1_clock_stock();      /* the stock 360 MHz, whichever bootloader started us (fm1_clock.h) */
+-        flash_ok = FL_FAR(fl_jedec_ram)() == 0x856014u;   /* the expected 1 MiB part, else RAM only */
++        flash_ok = FM1B_FLASH_JEDEC_OK(FL_FAR(fl_jedec_ram)());   /* a known 1 MiB part, else RAM only (fm1_flash_ok.h) */
+ #if FM1B_WIFI || FM1B_BLE
+         if (flash_ok)
+             FL_FAR(fl_uid_ram)(flash_uid);
