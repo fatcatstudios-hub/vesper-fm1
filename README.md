@@ -2,11 +2,12 @@
 
 An ambient worship firmware for the M-VAVE FM-1, by Fat Cat Studios.
 
-![VESPER](docs/images/vesper-boot.png) ![HOME](docs/images/vesper-home.png) ![Mixer](docs/images/vesper-mixer.png) ![FX](docs/images/vesper-fx.png)
+<img src="docs/images/vesper-card.png" alt="VESPER: the startup screen, and the home, FX and envelope pages in the Ember, Forest, Mono and Crystal themes" width="560">
 
 Each of VESPER's 16 scenes stacks four lush voices around a key. Everything stays in a major key you choose. Play the voices live over the scene, record into it, and shape the whole mix with a global effects chain built for pads and atmosphere.
 
-- **Identity:** `FM-1_8837201` (2.0.1)
+- **Works on every FM-1**, the first units and the newer ones with the UC25HQ80 flash chip (since 2.0.2).
+- **Identity:** `FM-1_8837202` (2.0.2)
 - **Built on:** [fm1-base](https://github.com/charlesvestal/fm1-base) and felucca-bsp (MPL-2.0). VESPER's own code and the open FM1 engine it plays through are GPL-3.0 with the FM1 SDK linking exception.
 - **Samples:** piano, marimba and glockenspiel from Versilian Studios VSCO-2 Community Edition (CC0). They are built into the firmware, so there is nothing extra to install.
 
@@ -42,19 +43,20 @@ The global effects:
 
 ## Installing
 
-Install from the [FM-1 Firmware Hub](https://thefirmwarehub.com), or open `FM1-VESPER-2.0.1-Installer.html` from the release in Chrome or Edge, connect the FM-1 by USB and press **Install**.
+Install from the [FM-1 Firmware Hub](https://thefirmwarehub.com), or open `FM1-VESPER-2.0.2-Installer.html` from the [latest release](https://github.com/fatcatstudios-hub/vesper-fm1/releases/latest) in Chrome or Edge, connect the FM-1 by USB and press **Install**.
 
 - It installs over M-VAVE's original V15 or another open firmware.
 - To leave VESPER, use **Back to the stock firmware** on the same page with M-VAVE's `FM-1.fwsc`, or install any other firmware.
-- If the FM-1 ever will not start, hold **REC** while switching it on for the chip's own update mode.
+- If the FM-1 ever will not start, hold **REC** while switching it on for the chip's own update mode, then follow the Hub's [rescue page](https://thefirmwarehub.com/tools/rescue/).
+- **A newer FM-1 still on 2.0.1** can't save or take an update: put it in update mode the same way, follow the rescue page, then install 2.0.2.
 - Projects saved in VESPER 1.x do not carry over to 2.0.
 
 ## Building
 
 ```
 git clone --recursive https://github.com/fatcatstudios-hub/vesper-fm1
-JIELI_TOOLCHAIN=/path/to/jieli-linux-toolchains AC79_SDK=/path/to/ac79-sdk tools/build.sh --release 2.0.1
-python3 tools/make_installer.py app/build/vesper-2.0.1.fwsc 2.0.1 FM1-VESPER-2.0.1-Installer.html
+JIELI_TOOLCHAIN=/path/to/jieli-linux-toolchains AC79_SDK=/path/to/ac79-sdk tools/build.sh --release 2.0.2
+python3 tools/make_installer.py app/build/vesper-2.0.2.fwsc 2.0.2 FM1-VESPER-2.0.2-Installer.html
 tools/build.sh --host        # the simulator: app/build/host/vesper_host SCRIPT OUTDIR
 ```
 
@@ -72,5 +74,6 @@ Most of VESPER lives in a few places:
 
 - FM-1 hardware, and the FM1 Open engine VESPER plays through: M-VAVE.
 - fm1-base: Charles Vestal. felucca-bsp and Felucca: Leo Kuroshita (Hügelton Instruments) and contributors.
+- Newer-chip support: Laurens's check from fm1-base PR #35.
 - Samples: Versilian Studios VSCO-2 Community Edition (CC0).
 - FM-1 web emulator: Joakim Eriksson.
