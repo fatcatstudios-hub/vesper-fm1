@@ -77,3 +77,5 @@ Most of VESPER lives in a few places:
 - Newer-chip support: Laurens's check from fm1-base PR #35.
 - Samples: Versilian Studios VSCO-2 Community Edition (CC0).
 - FM-1 web emulator: Joakim Eriksson.
+
+You can also try VESPER in the browser, no flashing needed, in the free community [FM-1 Emulator](https://fm1-emulator.atst.tools/).
